@@ -167,7 +167,23 @@ Metode: bertahap (phase-gated), setiap phase butuh **approval** sebelum lanjut.
 - [x] **118 unit test hijau** (orchestrator: klarifikasi, complete, ganti topik, konfirmasi ya/tidak) + typecheck + lint
 - [x] **Verifikasi LIVE**: klarifikasi merekam `kopi 25.000`, konfirmasi menghapusnya (soft-delete), konteks kembali IDLE, audit lengkap
 
-**Status Phase 8: SELESAI — menunggu approval untuk lanjut ke Phase 9.**
+**Status Phase 8: SELESAI & disetujui.**
+
+---
+
+## Checklist Phase 9 — Reports & Budget
+
+- [x] `ReportService` — summary hari/minggu/bulan: total masuk/keluar, saldo, breakdown per kategori (agregasi DB via `groupBy`)
+- [x] `CsvExportService` — export transaksi ke CSV (UTF-8 BOM, RFC-4180 escaping)
+- [x] `BudgetService.setBudget` — resolve kategori dari keyword atau overall; upsert
+- [x] `BudgetService.evaluate` — usage vs threshold per periode; alert ≥threshold / ≥100% (exceeded)
+- [x] Orchestrator: `OutgoingReply` (text + dokumen), case Summary/SetBudget/Export, **alert budget otomatis setelah expense**
+- [x] Handler mengirim teks & dokumen (CSV via `sendDocument`)
+- [x] ReplyBuilder: summary, budgetSet, budgetAlerts, exportCaption
+- [x] **129 unit test hijau** (Report, CsvExport, Budget evaluate/set, orchestrator summary/budget/export/alert) + typecheck + lint
+- [x] **Verifikasi LIVE**: `ringkasan bulan ini` (summary), `budget makan 2 juta` (tersimpan), `export bulan ini` (CSV terkirim); alert benar tidak muncul saat pemakaian jauh di bawah threshold
+
+**Status Phase 9: SELESAI — menunggu approval untuk lanjut ke Phase 10.**
 
 > Catatan verifikasi awal: di sandbox `405 Connection Failure` (IP datacenter) → gateway reconnect backoff sesuai desain.
 

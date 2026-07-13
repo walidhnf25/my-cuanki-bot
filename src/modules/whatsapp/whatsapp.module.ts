@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { BudgetModule } from '../budget/budget.module';
 import { ConversationModule } from '../conversation/conversation.module';
 import { ParserModule } from '../parser/parser.module';
+import { ReportModule } from '../report/report.module';
 import { TransactionModule } from '../transaction/transaction.module';
 import { UserModule } from '../user/user.module';
 import { IncomingMessageHandler } from './application/incoming-message.handler';
@@ -16,7 +18,15 @@ import { BaileysGateway } from './infrastructure/baileys.gateway';
  * the inbound orchestrator (parsing, conversation state, actions).
  */
 @Module({
-  imports: [UserModule, ParserModule, AuditModule, TransactionModule, ConversationModule],
+  imports: [
+    UserModule,
+    ParserModule,
+    AuditModule,
+    TransactionModule,
+    ConversationModule,
+    BudgetModule,
+    ReportModule,
+  ],
   providers: [
     { provide: MessagingGateway, useClass: BaileysGateway },
     MessageDedupeService,

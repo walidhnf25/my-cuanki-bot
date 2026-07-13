@@ -1,14 +1,21 @@
 import { Injectable } from '@nestjs/common';
+import { SetBudgetResult } from 'src/modules/budget/application/budget.service';
+import { BudgetAlert } from 'src/modules/budget/domain/budget-alert';
 import { IntentType, ParsedIntent } from 'src/modules/parser/domain/parsed-intent';
+import { SummaryResult } from 'src/modules/report/domain/summary.types';
 import { TransactionResult } from 'src/modules/transaction/application/transaction.service';
-import { TransactionType } from 'src/shared/domain/enums';
+import { BudgetPeriod, TransactionType } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
 
+const BUDGET_PERIOD_WORD: Record<BudgetPeriod, string> = {
+  [BudgetPeriod.DAILY]: 'harian',
+  [BudgetPeriod.WEEKLY]: 'mingguan',
+  [BudgetPeriod.MONTHLY]: 'bulanan',
+};
+
 /**
- * Builds the Indonesian text the bot replies with. In Phase 6 the transport +
- * routing are live; feature actions (recording, summaries, budgets, ...) are
- * acknowledged and wired up in Phases 7–10. Replies here are intentionally
- * honest about what is/ isn't persisted yet.
+ * Builds the Indonesian text the bot replies with. Feature replies (record,
+ * summary, budget, ...) are produced from application-service results.
  */
 @Injectable()
 export class ReplyBuilder {
@@ -137,6 +144,49 @@ export class ReplyBuilder {
 
   nothingToDelete(): string {
     return 'Belum ada transaksi yang bisa dihapus. 🙂';
+  }
+
+  summary(result: SummaryResult): string {
+    const lines = [
+      `📊 *Ringkasan ${result.periodLabel}*`,
+      '',
+      `💰 Pemasukan: ${result.income.format()}`,
+      `💸 Pengeluaran: ${result.expense.format()}`,
+      `💵 Saldo: ${result.balance.format()}`,
+    ];
+
+    if (result.categories.length > 0) {
+      lines.push('', '📂 *Pengeluaran per kategori:*');
+      for (const c of result.categories) {
+        lines.push(`${c.icon} ${c.name}: ${c.total.format()}`);
+      }
+    } else {
+      lines.push('', '_Belum ada pengeluaran pada periode ini._');
+    }
+
+    return lines.join('\n');
+  }
+
+  budgetSet(result: SetBudgetResult): string {
+    const { budget, category } = result;
+    const scope = category ? this.categoryLabel(category.name, category.icon) : 'Keseluruhan';
+    return `🎯 Budget diatur: *${scope}* — ${budget.amount.format()} / ${BUDGET_PERIOD_WORD[budget.period]}`;
+  }
+
+  budgetAlerts(alerts: BudgetAlert[]): string {
+    return alerts
+      .map((a) =>
+        a.exceeded
+          ? `⚠️ Budget *${a.categoryName}* ${BUDGET_PERIOD_WORD[a.period]} terlampaui! ${a.used.format()} / ${a.limit.format()} (${a.percent}%)`
+          : `⚠️ Budget *${a.categoryName}* ${BUDGET_PERIOD_WORD[a.period]} sudah ${a.percent}% terpakai (${a.used.format()} / ${a.limit.format()})`,
+      )
+      .join('\n');
+  }
+
+  exportCaption(rowCount: number): string {
+    return rowCount > 0
+      ? `📁 Laporan CSV (${rowCount} transaksi).`
+      : 'Belum ada transaksi untuk diexport pada periode ini.';
   }
 
   private categoryLabel(name?: string | null, icon?: string | null): string {

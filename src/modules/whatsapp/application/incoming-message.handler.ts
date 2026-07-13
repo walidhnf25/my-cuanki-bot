@@ -49,8 +49,21 @@ export class IncomingMessageHandler implements OnModuleInit {
     }
 
     const reply = await this.orchestrator.process(user, message);
-    if (reply) {
-      await this.gateway.sendText(message.chatJid, reply);
+    let replied = false;
+    if (reply.text) {
+      await this.gateway.sendText(message.chatJid, reply.text);
+      replied = true;
+    }
+    if (reply.document) {
+      await this.gateway.sendDocument(
+        message.chatJid,
+        reply.document.content,
+        reply.document.filename,
+        'text/csv',
+      );
+      replied = true;
+    }
+    if (replied) {
       await this.audit.record({ userId: user.id, action: 'MESSAGE_OUT' });
     }
   }

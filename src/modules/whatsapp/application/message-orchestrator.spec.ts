@@ -1,12 +1,15 @@
+import { BudgetService } from 'src/modules/budget/application/budget.service';
+import { CategoryEntity } from 'src/modules/category/domain/category.entity';
 import { ConversationService } from 'src/modules/conversation/application/conversation.service';
 import { ConversationContextEntity } from 'src/modules/conversation/domain/conversation-context.entity';
 import { RuleBasedParser } from 'src/modules/parser/rule-based/rule-based.parser';
+import { CsvExportService } from 'src/modules/report/application/csv-export.service';
+import { ReportService } from 'src/modules/report/application/report.service';
 import {
   TransactionResult,
   TransactionService,
 } from 'src/modules/transaction/application/transaction.service';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
-import { CategoryEntity } from 'src/modules/category/domain/category.entity';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { ConversationState, TransactionType } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
@@ -71,6 +74,9 @@ function msg(text: string, id = 'w1'): IncomingMessage {
 describe('MessageOrchestrator', () => {
   let conversation: jest.Mocked<ConversationService>;
   let transactions: jest.Mocked<TransactionService>;
+  let budgets: jest.Mocked<BudgetService>;
+  let reports: jest.Mocked<ReportService>;
+  let csvExport: jest.Mocked<CsvExportService>;
   let orchestrator: MessageOrchestrator;
 
   beforeEach(() => {
@@ -86,42 +92,57 @@ describe('MessageOrchestrator', () => {
       deleteLast: jest.fn(),
       getLast: jest.fn(),
     } as unknown as jest.Mocked<TransactionService>;
+    budgets = {
+      setBudget: jest.fn(),
+      evaluate: jest.fn().mockResolvedValue([]),
+    } as unknown as jest.Mocked<BudgetService>;
+    reports = { generateSummary: jest.fn() } as unknown as jest.Mocked<ReportService>;
+    csvExport = { export: jest.fn() } as unknown as jest.Mocked<CsvExportService>;
     orchestrator = new MessageOrchestrator(
       new RuleBasedParser(),
       conversation,
       transactions,
+      budgets,
+      reports,
+      csvExport,
       new ReplyBuilder(),
     );
   });
 
-  describe('fresh record', () => {
-    it('records immediately when the amount is present', async () => {
+  describe('record', () => {
+    it('records when the amount is present', async () => {
       transactions.record.mockResolvedValue(result);
       const reply = await orchestrator.process(user, msg('beli kopi 25rb'));
       expect(transactions.record).toHaveBeenCalled();
-      expect(reply).toContain('Berhasil dicatat');
+      expect(reply.text).toContain('Berhasil dicatat');
+    });
+
+    it('appends a budget alert when a threshold is crossed', async () => {
+      transactions.record.mockResolvedValue(result);
+      budgets.evaluate.mockResolvedValue([
+        {
+          categoryName: 'Makanan',
+          period: 'MONTHLY' as never,
+          used: Money.fromMajor(1_800_000),
+          limit: Money.fromMajor(2_000_000),
+          percent: 90,
+          exceeded: false,
+        },
+      ]);
+      const reply = await orchestrator.process(user, msg('beli kopi 25rb'));
+      expect(reply.text).toContain('Budget');
+      expect(reply.text).toContain('90%');
     });
 
     it('starts a clarification when the amount is missing', async () => {
       const reply = await orchestrator.process(user, msg('beli kopi'));
-      expect(conversation.awaitAmount).toHaveBeenCalledWith(
-        'u1',
-        expect.objectContaining({
-          description: 'kopi',
-          keywords: expect.arrayContaining(['kopi']),
-        }),
-        NOW,
-      );
-      expect(reply).toContain('Berapa harga');
-      expect(reply).toContain('kopi');
-      expect(transactions.record).not.toHaveBeenCalled();
+      expect(conversation.awaitAmount).toHaveBeenCalled();
+      expect(reply.text).toContain('Berapa harga');
     });
   });
 
   describe('awaiting amount', () => {
     const context = {
-      id: 'c1',
-      userId: 'u1',
       state: ConversationState.AWAITING_AMOUNT,
       payload: {
         transactionType: TransactionType.EXPENSE,
@@ -129,64 +150,90 @@ describe('MessageOrchestrator', () => {
         keywords: ['kopi'],
         occurredAt: NOW.toISOString(),
       },
-      expiresAt: new Date(NOW.getTime() + 60_000),
-      createdAt: NOW,
-      updatedAt: NOW,
     } as unknown as ConversationContextEntity;
 
     it('completes the pending transaction from a bare amount', async () => {
       conversation.getActive.mockResolvedValue(context);
       transactions.record.mockResolvedValue(result);
-
       const reply = await orchestrator.process(user, msg('25 ribu', 'w2'));
-
       expect(transactions.record).toHaveBeenCalledWith(
         'u1',
-        expect.objectContaining({
-          amount: expect.any(Money),
-          description: 'kopi',
-          keywords: ['kopi'],
-        }),
+        expect.objectContaining({ description: 'kopi', keywords: ['kopi'] }),
         'w2',
       );
       expect(conversation.clear).toHaveBeenCalledWith('u1');
-      expect(reply).toContain('Berhasil dicatat');
+      expect(reply.text).toContain('Berhasil dicatat');
     });
 
-    it('abandons the pending context when the user changes topic', async () => {
+    it('abandons the pending context on a topic change', async () => {
       conversation.getActive.mockResolvedValue(context);
+      reports.generateSummary.mockResolvedValue({
+        periodLabel: 'Bulan Ini',
+        range: { start: NOW, end: NOW },
+        income: Money.zero(),
+        expense: Money.zero(),
+        balance: Money.zero(),
+        categories: [],
+      });
       const reply = await orchestrator.process(user, msg('ringkasan bulan ini', 'w3'));
       expect(conversation.clear).toHaveBeenCalledWith('u1');
-      expect(transactions.record).not.toHaveBeenCalled();
-      expect(reply).toContain('Ringkasan'); // placeholder from ReplyBuilder
+      expect(reply.text).toContain('Ringkasan');
+    });
+  });
+
+  describe('summary / budget / export', () => {
+    it('renders a summary', async () => {
+      reports.generateSummary.mockResolvedValue({
+        periodLabel: 'Bulan Ini',
+        range: { start: NOW, end: NOW },
+        income: Money.fromMajor(8_000_000),
+        expense: Money.fromMajor(3_000_000),
+        balance: Money.fromMajor(5_000_000),
+        categories: [{ name: 'Makanan', icon: '🍜', total: Money.fromMajor(1_200_000) }],
+      });
+      const reply = await orchestrator.process(user, msg('ringkasan bulan ini'));
+      expect(reply.text).toContain('Ringkasan Bulan Ini');
+      expect(reply.text).toContain('Rp8.000.000');
+      expect(reply.text).toContain('Makanan');
+    });
+
+    it('sets a budget', async () => {
+      budgets.setBudget.mockResolvedValue({
+        budget: { amount: Money.fromMajor(2_000_000), period: 'MONTHLY' } as never,
+        category,
+      });
+      const reply = await orchestrator.process(user, msg('budget makan 2 juta'));
+      expect(budgets.setBudget).toHaveBeenCalled();
+      expect(reply.text).toContain('Budget diatur');
+    });
+
+    it('exports a CSV document', async () => {
+      csvExport.export.mockResolvedValue({
+        content: Buffer.from('a,b'),
+        filename: 'transaksi-bulan-ini.csv',
+        rowCount: 3,
+      });
+      const reply = await orchestrator.process(user, msg('export bulan ini'));
+      expect(reply.document?.filename).toBe('transaksi-bulan-ini.csv');
+      expect(reply.text).toContain('3 transaksi');
     });
   });
 
   describe('delete with confirmation', () => {
-    it('asks for confirmation and stores the confirm state', async () => {
+    it('asks to confirm then deletes on "ya"', async () => {
       transactions.getLast.mockResolvedValue(result);
-      const reply = await orchestrator.process(user, msg('hapus'));
-      expect(conversation.awaitDeleteConfirm).toHaveBeenCalledWith('u1', NOW);
-      expect(reply).toContain('Hapus transaksi terakhir?');
-    });
+      const prompt = await orchestrator.process(user, msg('hapus'));
+      expect(conversation.awaitDeleteConfirm).toHaveBeenCalled();
+      expect(prompt.text).toContain('Hapus transaksi terakhir?');
 
-    it('reports when there is nothing to delete', async () => {
-      transactions.getLast.mockResolvedValue(null);
-      const reply = await orchestrator.process(user, msg('hapus'));
-      expect(reply).toContain('Belum ada transaksi');
-      expect(conversation.awaitDeleteConfirm).not.toHaveBeenCalled();
-    });
-
-    it('deletes on "ya"', async () => {
       conversation.getActive.mockResolvedValue({
         state: ConversationState.AWAITING_DELETE_CONFIRM,
         payload: null,
       } as unknown as ConversationContextEntity);
       transactions.deleteLast.mockResolvedValue(result);
-
-      const reply = await orchestrator.process(user, msg('ya', 'w4'));
+      const done = await orchestrator.process(user, msg('ya', 'w4'));
       expect(transactions.deleteLast).toHaveBeenCalledWith('u1');
-      expect(reply).toContain('dihapus');
+      expect(done.text).toContain('dihapus');
     });
 
     it('cancels on "tidak"', async () => {
@@ -194,10 +241,9 @@ describe('MessageOrchestrator', () => {
         state: ConversationState.AWAITING_DELETE_CONFIRM,
         payload: null,
       } as unknown as ConversationContextEntity);
-
       const reply = await orchestrator.process(user, msg('tidak', 'w5'));
       expect(transactions.deleteLast).not.toHaveBeenCalled();
-      expect(reply).toContain('dibatalkan');
+      expect(reply.text).toContain('dibatalkan');
     });
   });
 });

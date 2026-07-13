@@ -93,7 +93,7 @@ describe('IncomingMessageHandler', () => {
     gateway = new FakeGateway();
     users = new StubUserRepository();
     audit = new StubAuditRepository();
-    orchestrator = { process: jest.fn().mockResolvedValue('ROUTED_REPLY') };
+    orchestrator = { process: jest.fn().mockResolvedValue({ text: 'ROUTED_REPLY' }) };
     handler = new IncomingMessageHandler(
       gateway,
       users,
@@ -113,7 +113,7 @@ describe('IncomingMessageHandler', () => {
   });
 
   it('sends nothing (and no MESSAGE_OUT) when the orchestrator returns empty', async () => {
-    orchestrator.process.mockResolvedValue('');
+    orchestrator.process.mockResolvedValue({});
     await handler.handle(msg({ waMessageId: 'm1', text: 'halo' }));
     expect(gateway.sent).toHaveLength(1); // onboarding only
     expect(audit.actions).toEqual(['MESSAGE_IN']);
