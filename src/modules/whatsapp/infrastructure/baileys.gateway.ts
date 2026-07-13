@@ -26,14 +26,36 @@ function disconnectStatusCode(error: unknown): number | undefined {
   return e?.output?.statusCode;
 }
 
-/** Extract plain text from the many WhatsApp message shapes. */
+/**
+ * Unwrap the common WhatsApp message envelopes (ephemeral/view-once/device-sent)
+ * to reach the real content. Self-chat ("message yourself") messages arrive
+ * wrapped in `deviceSentMessage`, so this is essential for them.
+ */
+function unwrapMessage(
+  message: WAMessageContent | null | undefined,
+): WAMessageContent | null | undefined {
+  const inner =
+    message?.ephemeralMessage?.message ??
+    message?.viewOnceMessage?.message ??
+    message?.viewOnceMessageV2?.message ??
+    message?.deviceSentMessage?.message ??
+    message?.documentWithCaptionMessage?.message;
+  return inner ? unwrapMessage(inner) : message;
+}
+
+/**
+ * Extract plain text from the many WhatsApp message shapes. Uses `||` (not `??`)
+ * because protobuf defaults unset string fields to '' — an empty `conversation`
+ * must fall through to `extendedTextMessage.text`.
+ */
 function extractText(message: WAMessageContent | null | undefined): string {
-  if (!message) return '';
+  const m = unwrapMessage(message);
+  if (!m) return '';
   return (
-    message.conversation ??
-    message.extendedTextMessage?.text ??
-    message.imageMessage?.caption ??
-    message.videoMessage?.caption ??
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
     ''
   );
 }
@@ -52,8 +74,9 @@ export class BaileysGateway extends MessagingGateway implements OnModuleInit, On
   private stopped = false;
   /** Cached WA Web protocol version (avoids 405 from an outdated default). */
   private waVersion: [number, number, number] | undefined;
-  /** Bot's own phone number (for detecting the "message yourself" chat). */
+  /** Bot's own phone number and LID (for detecting the "message yourself" chat). */
   private ownNumber: string | null = null;
+  private ownLid: string | null = null;
   /** Ids of messages we sent — so our own replies aren't reprocessed (loop guard). */
   private readonly sentIds = new Set<string>();
   private readonly sentOrder: string[] = [];
@@ -83,6 +106,7 @@ export class BaileysGateway extends MessagingGateway implements OnModuleInit, On
 
   onMessage(handler: IncomingMessageHandler): void {
     this.handler = handler;
+    this.logger.log('Inbound message handler registered');
   }
 
   getStatus(): ConnectionStatus {
@@ -167,8 +191,13 @@ export class BaileysGateway extends MessagingGateway implements OnModuleInit, On
     } else if (connection === 'open') {
       this.status = 'connected';
       this.reconnectAttempts = 0;
-      this.ownNumber = this.sock?.user?.id ? this.jidToNumber(this.sock.user.id) : null;
-      this.logger.log(`WhatsApp connection established ✅ (self=${this.ownNumber ?? 'unknown'})`);
+      const self = this.sock?.user;
+      this.ownNumber = self?.id ? this.jidToNumber(self.id) : null;
+      const lid = (self as { lid?: string } | undefined)?.lid;
+      this.ownLid = lid ? this.jidToNumber(lid) : null;
+      this.logger.log(
+        `WhatsApp connection established ✅ (self=${this.ownNumber ?? 'unknown'}, lid=${this.ownLid ?? 'none'})`,
+      );
     } else if (connection === 'close') {
       this.status = 'disconnected';
       const code = disconnectStatusCode(lastDisconnect?.error);
@@ -223,9 +252,13 @@ export class BaileysGateway extends MessagingGateway implements OnModuleInit, On
       if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) continue;
 
       const fromNumber = this.jidToNumber(jid);
-      const isSelfChat = this.ownNumber !== null && fromNumber === this.ownNumber;
-      // Skip our own outgoing messages to OTHER people, but allow the
-      // "message yourself" chat so the owner can log by texting themselves.
+      // The "message yourself" chat is addressed to our own number OR our own LID
+      // (WhatsApp's privacy identifier), so match either.
+      const isSelfChat =
+        (this.ownNumber !== null && fromNumber === this.ownNumber) ||
+        (this.ownLid !== null && fromNumber === this.ownLid);
+      // Skip our own outgoing messages to OTHER people, but allow the self-chat
+      // so the owner can log by texting themselves.
       if (m.key.fromMe && !isSelfChat) continue;
       // Skip messages we sent ourselves (our replies echoed back) — loop guard.
       if (m.key.id && this.sentIds.has(m.key.id)) continue;
