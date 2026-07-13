@@ -1,0 +1,185 @@
+// ============================================================
+// finance-whatsapp-bot — Prisma schema (Phase 4: full domain model)
+// PostgreSQL. Money stored as Decimal(18,2). Soft-delete on transactions.
+// snake_case columns/tables via @map/@@map.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------- Enums ----------------
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum BudgetPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ConversationState {
+  IDLE
+  AWAITING_AMOUNT
+  AWAITING_CATEGORY
+  AWAITING_CONFIRM
+  AWAITING_DELETE_CONFIRM
+}
+
+// ---------------- Models ----------------
+
+/// Application user, identified solely by WhatsApp number.
+model User {
+  id          String   @id @default(uuid()) @db.Uuid
+  waNumber    String   @unique @map("wa_number")
+  displayName String?  @map("display_name")
+  currency    String   @default("IDR")
+  timezone    String   @default("Asia/Jakarta")
+  isOnboarded Boolean  @default(false) @map("is_onboarded")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  transactions        Transaction[]
+  budgets             Budget[]
+  reminders           Reminder[]
+  categories          Category[]
+  conversationContext ConversationContext?
+  auditLogs           AuditLog[]
+
+  @@map("users")
+}
+
+/// Category for classifying transactions. `userId == null` => system/global.
+model Category {
+  id        String          @id @default(uuid()) @db.Uuid
+  userId    String?         @map("user_id") @db.Uuid
+  name      String
+  type      TransactionType
+  icon      String?
+  isSystem  Boolean         @default(false) @map("is_system")
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  user         User?             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keywords     CategoryKeyword[]
+  transactions Transaction[]
+  budgets      Budget[]
+
+  @@unique([userId, name, type])
+  @@index([type])
+  @@map("categories")
+}
+
+/// Keyword -> category mapping powering automatic categorization.
+model CategoryKeyword {
+  id         String   @id @default(uuid()) @db.Uuid
+  categoryId String   @map("category_id") @db.Uuid
+  keyword    String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, keyword])
+  @@index([keyword])
+  @@map("category_keywords")
+}
+
+/// A financial transaction (income or expense). Soft-deleted via deletedAt.
+model Transaction {
+  id            String          @id @default(uuid()) @db.Uuid
+  userId        String          @map("user_id") @db.Uuid
+  categoryId    String?         @map("category_id") @db.Uuid
+  type          TransactionType
+  amount        Decimal         @db.Decimal(18, 2)
+  description   String
+  note          String?
+  occurredAt    DateTime        @map("occurred_at")
+  sourceMessage String?         @map("source_message")
+  waMessageId   String?         @unique @map("wa_message_id")
+  deletedAt     DateTime?       @map("deleted_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, occurredAt])
+  @@index([userId, categoryId, occurredAt])
+  @@index([userId, deletedAt])
+  @@map("transactions")
+}
+
+/// Spending budget per category (or overall when categoryId is null).
+model Budget {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  categoryId     String?      @map("category_id") @db.Uuid
+  amount         Decimal      @db.Decimal(18, 2)
+  period         BudgetPeriod @default(MONTHLY)
+  alertThreshold Int          @default(80) @map("alert_threshold")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId, period])
+  @@index([userId])
+  @@map("budgets")
+}
+
+/// Scheduled reminder delivered to the user via WhatsApp.
+model Reminder {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  title          String
+  cronExpression String    @map("cron_expression")
+  nextRunAt      DateTime? @map("next_run_at")
+  isActive       Boolean   @default(true) @map("is_active")
+  lastSentAt     DateTime? @map("last_sent_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([isActive, nextRunAt])
+  @@index([userId])
+  @@map("reminders")
+}
+
+/// Per-user conversation state machine (clarification flow). 1:1 with user.
+model ConversationContext {
+  id        String            @id @default(uuid()) @db.Uuid
+  userId    String            @unique @map("user_id") @db.Uuid
+  state     ConversationState @default(IDLE)
+  payload   Json?
+  expiresAt DateTime?         @map("expires_at")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("conversation_contexts")
+}
+
+/// Append-only audit trail of significant actions.
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}

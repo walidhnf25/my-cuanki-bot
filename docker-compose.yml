@@ -1,0 +1,72 @@
+# ============================================================
+# finance-whatsapp-bot — Docker Compose (development / default)
+# Runs: postgres + app (NestJS) + nginx (reverse proxy)
+#   docker compose up -d
+# ============================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: finance_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: ${TZ}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No host port published: the app reaches Postgres internally via
+    # "postgres:5432" on the compose network. To inspect the DB from the host,
+    # add a mapping to a FREE port, e.g. `ports: ["5434:5432"]`.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - finance_net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finance_app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Ensure the app talks to postgres over the compose network
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Persist Baileys auth session so QR isn't required on every restart
+      - wa_session:/app/storage/wa-session
+    expose:
+      - '3000'
+    networks:
+      - finance_net
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: finance_nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - '80:80'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - finance_net
+
+volumes:
+  pgdata:
+  wa_session:
+
+networks:
+  finance_net:
+    driver: bridge
