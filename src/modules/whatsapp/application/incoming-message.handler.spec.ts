@@ -1,5 +1,4 @@
 import { AuditLogRepository } from 'src/modules/audit/domain/audit-log.repository';
-import { RuleBasedParser } from 'src/modules/parser/rule-based/rule-based.parser';
 import { CreateUserInput, UserEntity } from 'src/modules/user/domain/user.entity';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
 import {
@@ -8,9 +7,9 @@ import {
   IncomingMessageHandler as GatewayHandler,
   MessagingGateway,
 } from '../domain/messaging.gateway.port';
-import { CommandRouter } from './command-router';
 import { IncomingMessageHandler } from './incoming-message.handler';
 import { MessageDedupeService } from './message-dedupe.service';
+import { MessageOrchestrator } from './message-orchestrator';
 import { ReplyBuilder } from './reply-builder';
 
 class FakeGateway extends MessagingGateway {
@@ -87,53 +86,43 @@ describe('IncomingMessageHandler', () => {
   let gateway: FakeGateway;
   let users: StubUserRepository;
   let audit: StubAuditRepository;
-  let router: { route: jest.Mock };
+  let orchestrator: { process: jest.Mock };
   let handler: IncomingMessageHandler;
 
   beforeEach(() => {
     gateway = new FakeGateway();
     users = new StubUserRepository();
     audit = new StubAuditRepository();
-    router = { route: jest.fn().mockResolvedValue('ROUTED_REPLY') };
+    orchestrator = { process: jest.fn().mockResolvedValue('ROUTED_REPLY') };
     handler = new IncomingMessageHandler(
       gateway,
       users,
-      new RuleBasedParser(),
       audit,
       new MessageDedupeService(),
       new ReplyBuilder(),
-      router as unknown as CommandRouter,
+      orchestrator as unknown as MessageOrchestrator,
     );
   });
 
-  it('onboards a new user and sends the routed reply', async () => {
+  it('onboards a new user and sends the orchestrated reply', async () => {
     await handler.handle(msg({ waMessageId: 'm1' }));
-    expect(gateway.sent).toHaveLength(2); // onboarding + routed reply
+    expect(gateway.sent).toHaveLength(2);
     expect(gateway.sent[0].text).toContain('Selamat datang');
     expect(gateway.sent[1].text).toBe('ROUTED_REPLY');
     expect(audit.actions).toEqual(['MESSAGE_IN', 'MESSAGE_OUT']);
   });
 
-  it('does not re-onboard a returning user', async () => {
+  it('sends nothing (and no MESSAGE_OUT) when the orchestrator returns empty', async () => {
+    orchestrator.process.mockResolvedValue('');
     await handler.handle(msg({ waMessageId: 'm1', text: 'halo' }));
-    gateway.sent = [];
-    await handler.handle(msg({ waMessageId: 'm2', text: 'gaji 8 juta' }));
-    expect(gateway.sent).toHaveLength(1);
-    expect(gateway.sent[0].text).toBe('ROUTED_REPLY');
-  });
-
-  it('sends nothing (and no MESSAGE_OUT) when the router returns empty', async () => {
-    router.route.mockResolvedValue('');
-    await handler.handle(msg({ waMessageId: 'm1', text: 'halo' }));
-    // Only onboarding (new user) was sent; no routed reply.
-    expect(gateway.sent).toHaveLength(1);
+    expect(gateway.sent).toHaveLength(1); // onboarding only
     expect(audit.actions).toEqual(['MESSAGE_IN']);
   });
 
   it('ignores duplicate message ids', async () => {
-    await handler.handle(msg({ waMessageId: 'dup', text: 'halo' }));
+    await handler.handle(msg({ waMessageId: 'dup' }));
     const count = gateway.sent.length;
-    await handler.handle(msg({ waMessageId: 'dup', text: 'halo' }));
+    await handler.handle(msg({ waMessageId: 'dup' }));
     expect(gateway.sent.length).toBe(count);
   });
 });

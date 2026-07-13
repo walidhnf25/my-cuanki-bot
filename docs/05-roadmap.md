@@ -150,7 +150,24 @@ Metode: bertahap (phase-gated), setiap phase butuh **approval** sebelum lanjut.
 - [x] **117 unit test hijau** (CategoryResolver, TransactionService, CommandRouter, handler) + typecheck + lint bersih
 - [x] **Verifikasi LIVE WhatsApp**: `beli bakso 20rb` → tercatat `EXPENSE 20.000 "bakso" → Makanan 🍜`, audit `MESSAGE_IN → TX_CREATE → MESSAGE_OUT`, bot balas "✅ Berhasil dicatat"
 
-**Status Phase 7: SELESAI — menunggu approval untuk lanjut ke Phase 8.**
+**Status Phase 7: SELESAI & disetujui.**
+
+---
+
+## Checklist Phase 8 — Conversation Engine
+
+- [x] `ConversationService` — state ops di atas repo (getActive/awaitAmount/awaitDeleteConfirm/clear) + TTL 5 menit
+- [x] `PendingTransaction` payload (JSON di `conversation_contexts.payload`)
+- [x] `MessageOrchestrator` — entry stateful tunggal (menggantikan CommandRouter):
+  - [x] Flow klarifikasi: "beli kopi" → simpan konteks → "Berapa harga kopi?" → "25 ribu" → ✅ tercatat
+  - [x] Konfirmasi hapus: "hapus" → "Yakin? ya/tidak" → "ya"/"tidak"
+  - [x] Ganti topik saat menunggu → konteks dibersihkan, perintah baru diproses
+  - [x] Konteks otomatis IDLE + TTL expiry
+- [x] `TransactionService.getLast` untuk prompt konfirmasi
+- [x] **118 unit test hijau** (orchestrator: klarifikasi, complete, ganti topik, konfirmasi ya/tidak) + typecheck + lint
+- [x] **Verifikasi LIVE**: klarifikasi merekam `kopi 25.000`, konfirmasi menghapusnya (soft-delete), konteks kembali IDLE, audit lengkap
+
+**Status Phase 8: SELESAI — menunggu approval untuk lanjut ke Phase 9.**
 
 > Catatan verifikasi awal: di sandbox `405 Connection Failure` (IP datacenter) → gateway reconnect backoff sesuai desain.
 

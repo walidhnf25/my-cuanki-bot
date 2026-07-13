@@ -107,6 +107,14 @@ export class TransactionService {
     return { transaction: updated, category };
   }
 
+  /** The user's most recent transaction (with its category), without mutating. */
+  async getLast(userId: string): Promise<TransactionResult | null> {
+    const latest = await this.transactions.findLatestForUser(userId);
+    if (!latest) return null;
+    const category = latest.categoryId ? await this.categories.findById(latest.categoryId) : null;
+    return { transaction: latest, category };
+  }
+
   /** Soft-delete the user's most recent transaction. */
   async deleteLast(userId: string): Promise<TransactionResult | null> {
     const latest = await this.transactions.findLatestForUser(userId);

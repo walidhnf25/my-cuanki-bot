@@ -1,15 +1,14 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { AuditLogRepository } from 'src/modules/audit/domain/audit-log.repository';
-import { MessageParser } from 'src/modules/parser/domain/message-parser.port';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
 import { IncomingMessage, MessagingGateway } from '../domain/messaging.gateway.port';
-import { CommandRouter } from './command-router';
 import { MessageDedupeService } from './message-dedupe.service';
+import { MessageOrchestrator } from './message-orchestrator';
 import { ReplyBuilder } from './reply-builder';
 
 /**
- * Orchestrates the inbound pipeline:
- *   dedupe -> auto-register user -> audit -> parse -> route(action) -> reply.
+ * Inbound pipeline: dedupe -> auto-register user -> audit -> orchestrate -> reply.
+ * Parsing, conversation state and actions live in the MessageOrchestrator.
  */
 @Injectable()
 export class IncomingMessageHandler implements OnModuleInit {
@@ -18,11 +17,10 @@ export class IncomingMessageHandler implements OnModuleInit {
   constructor(
     private readonly gateway: MessagingGateway,
     private readonly users: UserRepository,
-    private readonly parser: MessageParser,
     private readonly audit: AuditLogRepository,
     private readonly dedupe: MessageDedupeService,
     private readonly replies: ReplyBuilder,
-    private readonly router: CommandRouter,
+    private readonly orchestrator: MessageOrchestrator,
   ) {}
 
   onModuleInit(): void {
@@ -50,20 +48,10 @@ export class IncomingMessageHandler implements OnModuleInit {
       await this.gateway.sendText(message.chatJid, this.replies.onboarding(user.displayName));
     }
 
-    const intent = await this.parser.parse({
-      text: message.text,
-      now: message.timestamp,
-      timezone: user.timezone,
-    });
-
-    const reply = await this.router.route(user.id, user.timezone, intent, message.waMessageId);
+    const reply = await this.orchestrator.process(user, message);
     if (reply) {
       await this.gateway.sendText(message.chatJid, reply);
-      await this.audit.record({
-        userId: user.id,
-        action: 'MESSAGE_OUT',
-        metadata: { intent: intent.type },
-      });
+      await this.audit.record({ userId: user.id, action: 'MESSAGE_OUT' });
     }
   }
 }

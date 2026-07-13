@@ -77,8 +77,27 @@ export class ReplyBuilder {
     }
   }
 
-  askAmount(): string {
-    return '💰 Berapa harganya?';
+  askAmount(description?: string): string {
+    return description ? `💰 Berapa harga *${description}*?` : '💰 Berapa harganya?';
+  }
+
+  deleteConfirm(result: TransactionResult): string {
+    const { transaction: t } = result;
+    const label = t.type === TransactionType.INCOME ? 'Pemasukan' : 'Pengeluaran';
+    return [
+      `🗑️ Hapus transaksi terakhir?`,
+      `${label} ${t.amount.format()} — "${t.description}"`,
+      '',
+      'Ketik *ya* untuk hapus, *tidak* untuk batal.',
+    ].join('\n');
+  }
+
+  deleteConfirmRetry(): string {
+    return 'Ketik *ya* untuk menghapus, atau *tidak* untuk membatalkan. 🙂';
+  }
+
+  cancelled(): string {
+    return 'Oke, dibatalkan. 👍';
   }
 
   recorded(result: TransactionResult, timezone: string): string {

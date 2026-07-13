@@ -1,27 +1,27 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { ConversationModule } from '../conversation/conversation.module';
 import { ParserModule } from '../parser/parser.module';
 import { TransactionModule } from '../transaction/transaction.module';
 import { UserModule } from '../user/user.module';
-import { CommandRouter } from './application/command-router';
 import { IncomingMessageHandler } from './application/incoming-message.handler';
 import { MessageDedupeService } from './application/message-dedupe.service';
+import { MessageOrchestrator } from './application/message-orchestrator';
 import { ReplyBuilder } from './application/reply-builder';
 import { MessagingGateway } from './domain/messaging.gateway.port';
 import { BaileysGateway } from './infrastructure/baileys.gateway';
 
 /**
- * WhatsApp delivery module. Binds the MessagingGateway port to Baileys and
- * wires the inbound orchestrator. Exports the gateway + health indicator so the
- * health module can report connection status.
+ * WhatsApp delivery module. Binds the MessagingGateway port to Baileys and wires
+ * the inbound orchestrator (parsing, conversation state, actions).
  */
 @Module({
-  imports: [UserModule, ParserModule, AuditModule, TransactionModule],
+  imports: [UserModule, ParserModule, AuditModule, TransactionModule, ConversationModule],
   providers: [
     { provide: MessagingGateway, useClass: BaileysGateway },
     MessageDedupeService,
     ReplyBuilder,
-    CommandRouter,
+    MessageOrchestrator,
     IncomingMessageHandler,
   ],
   exports: [MessagingGateway],

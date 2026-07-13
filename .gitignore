@@ -6,11 +6,10 @@
 /build
 *.tsbuildinfo
 
-# Env files (keep .example)
+# Env files — ignore ALL real env files, keep only the template
 .env
-.env.local
-.env.production
-.env.*.local
+.env.*
+!.env.example
 
 # Logs
 logs
