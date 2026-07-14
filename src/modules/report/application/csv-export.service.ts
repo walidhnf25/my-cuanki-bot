@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { CategoryRepository } from 'src/modules/category/domain/category.repository';
-import { SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
+import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { TransactionType } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
-import { resolvePeriod } from './period';
+import { customRangeInfo, resolvePeriod } from './period';
 
 export interface CsvExport {
   content: Buffer;
@@ -33,8 +33,16 @@ export class CsvExportService {
     private readonly categories: CategoryRepository,
   ) {}
 
-  async export(userId: string, period: SummaryPeriod, now: Date, tz: string): Promise<CsvExport> {
-    const { range, slug } = resolvePeriod(period, now, tz);
+  async export(
+    userId: string,
+    period: SummaryPeriod,
+    now: Date,
+    tz: string,
+    customRange?: DateRangeSpec,
+  ): Promise<CsvExport> {
+    const { range, slug } = customRange
+      ? customRangeInfo(customRange, tz)
+      : resolvePeriod(period, now, tz);
     const rows = await this.transactions.findManyInRange(userId, range);
 
     const lines = [HEADER.join(',')];

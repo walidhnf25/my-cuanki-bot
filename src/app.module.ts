@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { CoreModule } from './common/core.module';
 import { LoggerModule } from './common/logger/logger.module';
@@ -27,6 +28,7 @@ import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
     LoggerModule,
     CoreModule,
     PrismaModule,
+    ScheduleModule.forRoot(),
     // Persistence (Phase 4)
     UserModule,
     CategoryModule,

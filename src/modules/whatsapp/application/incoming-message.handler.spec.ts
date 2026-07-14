@@ -44,6 +44,7 @@ class StubUserRepository extends UserRepository {
     const user: UserEntity = {
       id: `id-${input.waNumber}`,
       waNumber: input.waNumber,
+      chatJid: input.chatJid ?? null,
       displayName: input.displayName ?? null,
       currency: 'IDR',
       timezone: 'Asia/Jakarta',

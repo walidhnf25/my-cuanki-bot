@@ -40,6 +40,16 @@ export class ConversationService {
     });
   }
 
+  /** Ask the user to confirm wiping all of their data. */
+  async awaitResetConfirm(userId: string, now: Date): Promise<void> {
+    await this.repository.set({
+      userId,
+      state: ConversationState.AWAITING_CONFIRM,
+      payload: { action: 'reset' },
+      expiresAt: new Date(now.getTime() + CONTEXT_TTL_MS),
+    });
+  }
+
   clear(userId: string): Promise<void> {
     return this.repository.clear(userId);
   }

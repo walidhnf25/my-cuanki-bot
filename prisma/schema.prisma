@@ -40,6 +40,7 @@ enum ConversationState {
 model User {
   id          String   @id @default(uuid()) @db.Uuid
   waNumber    String   @unique @map("wa_number")
+  chatJid     String?  @map("chat_jid")
   displayName String?  @map("display_name")
   currency    String   @default("IDR")
   timezone    String   @default("Asia/Jakarta")

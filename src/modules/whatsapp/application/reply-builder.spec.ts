@@ -9,7 +9,7 @@ describe('ReplyBuilder', () => {
   it('builds an onboarding message with the name', () => {
     const msg = replies.onboarding('Budi');
     expect(msg).toContain('Budi');
-    expect(msg).toContain('Finance Bot');
+    expect(msg).toContain('Cuanki');
     expect(msg).toContain('beli kopi 25rb');
   });
 
@@ -43,7 +43,7 @@ describe('ReplyBuilder', () => {
   });
 
   it('shows the help menu', () => {
-    expect(replies.compose({ type: IntentType.Help, raw: 'help' })).toContain('Menu Finance Bot');
+    expect(replies.compose({ type: IntentType.Help, raw: 'help' })).toContain('Menu Cuanki');
   });
 
   it('falls back for unknown input', () => {

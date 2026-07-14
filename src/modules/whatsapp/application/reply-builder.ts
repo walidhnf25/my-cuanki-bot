@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { SetBudgetResult } from 'src/modules/budget/application/budget.service';
 import { BudgetAlert } from 'src/modules/budget/domain/budget-alert';
 import { IntentType, ParsedIntent } from 'src/modules/parser/domain/parsed-intent';
+import { CreateReminderResult } from 'src/modules/reminder/application/reminder.service';
 import { SummaryResult } from 'src/modules/report/domain/summary.types';
 import { TransactionResult } from 'src/modules/transaction/application/transaction.service';
 import { BudgetPeriod, TransactionType } from 'src/shared/domain/enums';
@@ -22,16 +23,16 @@ export class ReplyBuilder {
   onboarding(name?: string | null): string {
     const greeting = name ? `Halo ${name}! 👋` : 'Halo! 👋';
     return [
-      `${greeting} Selamat datang di *Finance Bot* 🤖💰`,
+      `${greeting} Selamat datang di *Cuanki* 🤖💰`,
       '',
       'Catat keuangan cukup lewat chat. Contoh:',
       '• _beli kopi 25rb_',
       '• _gaji 8 juta_',
-      '• _isi bensin 100rb_',
       '• _ringkasan bulan ini_',
       '• _budget makan 2 juta_',
+      '• _ingatkan bayar listrik tiap tanggal 5_',
       '',
-      'Ketik *help* kapan saja untuk melihat menu.',
+      'Ketik *help* kapan saja untuk melihat menu lengkap.',
     ].join('\n');
   }
 
@@ -189,6 +190,31 @@ export class ReplyBuilder {
       : 'Belum ada transaksi untuk diexport pada periode ini.';
   }
 
+  reminderSet(result: CreateReminderResult): string {
+    return `⏰ Pengingat diatur: *${result.reminder.title}* — ${result.humanReadable}.`;
+  }
+
+  reminderNotUnderstood(): string {
+    return 'Maaf, saya belum paham jadwalnya 🙏. Contoh: _ingatkan bayar listrik tiap tanggal 5_';
+  }
+
+  resetConfirm(): string {
+    return [
+      '⚠️ *Yakin mau reset SEMUA data?*',
+      'Seluruh transaksi, budget, dan pengingat kamu akan *dihapus permanen* dan tidak bisa dikembalikan.',
+      '',
+      'Ketik *ya* untuk reset, *tidak* untuk batal.',
+    ].join('\n');
+  }
+
+  resetConfirmRetry(): string {
+    return 'Ketik *ya* untuk reset semua data, atau *tidak* untuk membatalkan. 🙂';
+  }
+
+  dataReset(): string {
+    return '✅ Semua data kamu sudah direset. Yuk mulai catat dari awal! 🆕';
+  }
+
   private categoryLabel(name?: string | null, icon?: string | null): string {
     const label = name ?? 'Lainnya';
     return icon ? `${icon} ${label}` : label;
@@ -196,21 +222,38 @@ export class ReplyBuilder {
 
   private help(): string {
     return [
-      '*📖 Menu Finance Bot*',
+      '*📖 Menu Cuanki*',
       '',
-      '*Catat pengeluaran:*',
+      '*💸 Catat pengeluaran:*',
       '• _beli kopi 25rb_',
       '• _isi bensin 100rb_',
+      '• _makan bakso kemarin 15rb_',
       '',
-      '*Catat pemasukan:*',
+      '*💰 Catat pemasukan:*',
       '• _gaji 8 juta_',
       '• _dapat bonus 500rb_',
       '',
-      '*Laporan & lainnya:*',
+      '*📊 Ringkasan:*',
       '• _ringkasan hari ini / minggu ini / bulan ini_',
+      '• _ringkasan 13/07/2026 - 14/07/2026_',
+      '',
+      '*🎯 Budget:*',
       '• _budget makan 2 juta_',
-      '• _hapus_ (transaksi terakhir)',
-      '• _export bulan ini_',
+      '',
+      '*⏰ Pengingat:*',
+      '• _ingatkan bayar listrik tiap tanggal 5_',
+      '• _ingatkan minum obat tiap hari jam 7_',
+      '',
+      '*✏️ Kelola transaksi terakhir:*',
+      '• _edit jadi 30rb_',
+      '• _hapus_',
+      '',
+      '*📁 Export:*',
+      '• _export hari ini / minggu ini / bulan ini_',
+      '• _export 13/07/2026 - 14/07/2026_',
+      '',
+      '*🔄 Reset:*',
+      '• _reset_ (hapus semua data, mulai dari awal)',
     ].join('\n');
   }
 }

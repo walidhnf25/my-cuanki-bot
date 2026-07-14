@@ -26,12 +26,24 @@ export class PrismaUserRepository extends UserRepository {
       where: { waNumber: input.waNumber },
     });
     if (existing) {
+      // Keep the reply address fresh (WhatsApp may change the addressing).
+      if (input.chatJid && input.chatJid !== existing.chatJid) {
+        const updated = await this.prisma.user.update({
+          where: { id: existing.id },
+          data: { chatJid: input.chatJid },
+        });
+        return { user: toUserEntity(updated), created: false };
+      }
       return { user: toUserEntity(existing), created: false };
     }
 
     try {
       const created = await this.prisma.user.create({
-        data: { waNumber: input.waNumber, displayName: input.displayName ?? null },
+        data: {
+          waNumber: input.waNumber,
+          chatJid: input.chatJid ?? null,
+          displayName: input.displayName ?? null,
+        },
       });
       return { user: toUserEntity(created), created: true };
     } catch (error) {

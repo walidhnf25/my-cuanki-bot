@@ -7,6 +7,7 @@ import { MessageParser, ParseInput } from '../domain/message-parser.port';
 import { IntentType, ParsedIntent, SummaryPeriod } from '../domain/parsed-intent';
 import { extractAmount } from './amount.tokenizer';
 import { extractDate } from './date.tokenizer';
+import { extractDateRange } from './date-range.tokenizer';
 import {
   BUDGET_WORDS,
   DELETE_WORDS,
@@ -53,14 +54,21 @@ export class RuleBasedParser extends MessageParser {
     if (has(HELP_WORDS)) {
       return { type: IntentType.Help, raw };
     }
+    // Reset must be checked before delete so "hapus semua" isn't treated as
+    // deleting the last transaction.
+    if (tokens.has('reset') || /\bhapus semua\b|\breset data\b/.test(normalized)) {
+      return { type: IntentType.ResetData, raw };
+    }
     if (has(DELETE_WORDS)) {
       return { type: IntentType.DeleteTransaction, raw };
     }
     if (has(SUMMARY_WORDS)) {
-      return { type: IntentType.Summary, raw, period: this.detectPeriod(normalized) };
+      const customRange = extractDateRange(raw, now, tz) ?? undefined;
+      return { type: IntentType.Summary, raw, period: this.detectPeriod(normalized), customRange };
     }
     if (has(EXPORT_WORDS)) {
-      return { type: IntentType.Export, raw, period: this.detectPeriod(normalized) };
+      const customRange = extractDateRange(raw, now, tz) ?? undefined;
+      return { type: IntentType.Export, raw, period: this.detectPeriod(normalized), customRange };
     }
     if (has(BUDGET_WORDS)) {
       const amount = extractAmount(raw)?.amount ?? null;

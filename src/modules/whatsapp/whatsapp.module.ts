@@ -1,8 +1,9 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { BudgetModule } from '../budget/budget.module';
 import { ConversationModule } from '../conversation/conversation.module';
 import { ParserModule } from '../parser/parser.module';
+import { ReminderModule } from '../reminder/reminder.module';
 import { ReportModule } from '../report/report.module';
 import { TransactionModule } from '../transaction/transaction.module';
 import { UserModule } from '../user/user.module';
@@ -26,6 +27,7 @@ import { BaileysGateway } from './infrastructure/baileys.gateway';
     ConversationModule,
     BudgetModule,
     ReportModule,
+    forwardRef(() => ReminderModule),
   ],
   providers: [
     { provide: MessagingGateway, useClass: BaileysGateway },

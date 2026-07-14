@@ -9,9 +9,11 @@ import {
   ParsedIntent,
   RecordTransactionIntent,
 } from 'src/modules/parser/domain/parsed-intent';
+import { ReminderService } from 'src/modules/reminder/application/reminder.service';
 import { CsvExportService } from 'src/modules/report/application/csv-export.service';
 import { ReportService } from 'src/modules/report/application/report.service';
 import { TransactionService } from 'src/modules/transaction/application/transaction.service';
+import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { ConversationState, TransactionType } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
@@ -42,6 +44,8 @@ export class MessageOrchestrator {
     private readonly budgets: BudgetService,
     private readonly reports: ReportService,
     private readonly csvExport: CsvExportService,
+    private readonly reminders: ReminderService,
+    private readonly resetData: ResetUserDataService,
     private readonly replies: ReplyBuilder,
   ) {}
 
@@ -96,6 +100,26 @@ export class MessageOrchestrator {
       return null;
     }
 
+    if (context.state === ConversationState.AWAITING_CONFIRM) {
+      const action = (context.payload as { action?: string } | null)?.action;
+      if (action !== 'reset') return null;
+
+      const answer = this.yesNo(message.text);
+      if (answer === 'yes') {
+        await this.resetData.reset(user.id);
+        await this.conversation.clear(user.id);
+        return { text: this.replies.dataReset() };
+      }
+      if (answer === 'no') {
+        await this.conversation.clear(user.id);
+        return { text: this.replies.cancelled() };
+      }
+      if (intent.type === IntentType.Unknown || intent.type === IntentType.Greeting) {
+        return { text: this.replies.resetConfirmRetry() };
+      }
+      return null;
+    }
+
     return null;
   }
 
@@ -144,6 +168,7 @@ export class MessageOrchestrator {
           intent.period,
           now,
           user.timezone,
+          intent.customRange,
         );
         return { text: this.replies.summary(summary) };
       }
@@ -162,11 +187,35 @@ export class MessageOrchestrator {
       }
 
       case IntentType.Export: {
-        const csv = await this.csvExport.export(user.id, intent.period, now, user.timezone);
+        const csv = await this.csvExport.export(
+          user.id,
+          intent.period,
+          now,
+          user.timezone,
+          intent.customRange,
+        );
         return {
           text: this.replies.exportCaption(csv.rowCount),
           document: csv.rowCount > 0 ? { content: csv.content, filename: csv.filename } : undefined,
         };
+      }
+
+      case IntentType.SetReminder: {
+        const result = await this.reminders.create(
+          user.id,
+          intent.title,
+          intent.schedulePhrase,
+          now,
+          user.timezone,
+        );
+        return {
+          text: result ? this.replies.reminderSet(result) : this.replies.reminderNotUnderstood(),
+        };
+      }
+
+      case IntentType.ResetData: {
+        await this.conversation.awaitResetConfirm(user.id, now);
+        return { text: this.replies.resetConfirm() };
       }
 
       default:

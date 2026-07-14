@@ -9,6 +9,7 @@ export enum IntentType {
   DeleteTransaction = 'DELETE_TRANSACTION',
   SetReminder = 'SET_REMINDER',
   Export = 'EXPORT',
+  ResetData = 'RESET_DATA',
   Help = 'HELP',
   Greeting = 'GREETING',
   /** A bare amount ("25 ribu") — used to complete a pending clarification. */
@@ -39,9 +40,16 @@ export interface RecordTransactionIntent extends BaseIntent {
   occurredAt: Date;
 }
 
+/** Explicit start/end range (from "dari … sampai …"), overrides `period`. */
+export interface DateRangeSpec {
+  start: Date;
+  end: Date;
+}
+
 export interface SummaryIntent extends BaseIntent {
   type: IntentType.Summary;
   period: SummaryPeriod;
+  customRange?: DateRangeSpec;
 }
 
 export interface SetBudgetIntent extends BaseIntent {
@@ -73,6 +81,11 @@ export interface ReminderIntent extends BaseIntent {
 export interface ExportIntent extends BaseIntent {
   type: IntentType.Export;
   period: SummaryPeriod;
+  customRange?: DateRangeSpec;
+}
+
+export interface ResetDataIntent extends BaseIntent {
+  type: IntentType.ResetData;
 }
 
 export interface HelpIntent extends BaseIntent {
@@ -100,6 +113,7 @@ export type ParsedIntent =
   | DeleteTransactionIntent
   | ReminderIntent
   | ExportIntent
+  | ResetDataIntent
   | HelpIntent
   | GreetingIntent
   | AmountOnlyIntent

@@ -3,12 +3,14 @@ import { CategoryEntity } from 'src/modules/category/domain/category.entity';
 import { ConversationService } from 'src/modules/conversation/application/conversation.service';
 import { ConversationContextEntity } from 'src/modules/conversation/domain/conversation-context.entity';
 import { RuleBasedParser } from 'src/modules/parser/rule-based/rule-based.parser';
+import { ReminderService } from 'src/modules/reminder/application/reminder.service';
 import { CsvExportService } from 'src/modules/report/application/csv-export.service';
 import { ReportService } from 'src/modules/report/application/report.service';
 import {
   TransactionResult,
   TransactionService,
 } from 'src/modules/transaction/application/transaction.service';
+import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { ConversationState, TransactionType } from 'src/shared/domain/enums';
@@ -22,6 +24,7 @@ const NOW = new Date('2026-07-15T03:00:00.000Z');
 const user: UserEntity = {
   id: 'u1',
   waNumber: '628123',
+  chatJid: '628123@s.whatsapp.net',
   displayName: 'Budi',
   currency: 'IDR',
   timezone: 'Asia/Jakarta',
@@ -77,6 +80,8 @@ describe('MessageOrchestrator', () => {
   let budgets: jest.Mocked<BudgetService>;
   let reports: jest.Mocked<ReportService>;
   let csvExport: jest.Mocked<CsvExportService>;
+  let reminders: jest.Mocked<ReminderService>;
+  let resetData: jest.Mocked<ResetUserDataService>;
   let orchestrator: MessageOrchestrator;
 
   beforeEach(() => {
@@ -84,6 +89,7 @@ describe('MessageOrchestrator', () => {
       getActive: jest.fn().mockResolvedValue(null),
       awaitAmount: jest.fn().mockResolvedValue(undefined),
       awaitDeleteConfirm: jest.fn().mockResolvedValue(undefined),
+      awaitResetConfirm: jest.fn().mockResolvedValue(undefined),
       clear: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<ConversationService>;
     transactions = {
@@ -98,6 +104,10 @@ describe('MessageOrchestrator', () => {
     } as unknown as jest.Mocked<BudgetService>;
     reports = { generateSummary: jest.fn() } as unknown as jest.Mocked<ReportService>;
     csvExport = { export: jest.fn() } as unknown as jest.Mocked<CsvExportService>;
+    reminders = { create: jest.fn() } as unknown as jest.Mocked<ReminderService>;
+    resetData = {
+      reset: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<ResetUserDataService>;
     orchestrator = new MessageOrchestrator(
       new RuleBasedParser(),
       conversation,
@@ -105,6 +115,8 @@ describe('MessageOrchestrator', () => {
       budgets,
       reports,
       csvExport,
+      reminders,
+      resetData,
       new ReplyBuilder(),
     );
   });
@@ -243,6 +255,36 @@ describe('MessageOrchestrator', () => {
       } as unknown as ConversationContextEntity);
       const reply = await orchestrator.process(user, msg('tidak', 'w5'));
       expect(transactions.deleteLast).not.toHaveBeenCalled();
+      expect(reply.text).toContain('dibatalkan');
+    });
+  });
+
+  describe('reset data', () => {
+    it('asks to confirm on "reset"', async () => {
+      const reply = await orchestrator.process(user, msg('reset'));
+      expect(conversation.awaitResetConfirm).toHaveBeenCalledWith('u1', NOW);
+      expect(reply.text).toContain('reset SEMUA data');
+      expect(resetData.reset).not.toHaveBeenCalled();
+    });
+
+    it('wipes data on "ya" while awaiting reset confirm', async () => {
+      conversation.getActive.mockResolvedValue({
+        state: ConversationState.AWAITING_CONFIRM,
+        payload: { action: 'reset' },
+      } as unknown as ConversationContextEntity);
+      const reply = await orchestrator.process(user, msg('ya', 'wr'));
+      expect(resetData.reset).toHaveBeenCalledWith('u1');
+      expect(conversation.clear).toHaveBeenCalledWith('u1');
+      expect(reply.text).toContain('direset');
+    });
+
+    it('cancels reset on "tidak"', async () => {
+      conversation.getActive.mockResolvedValue({
+        state: ConversationState.AWAITING_CONFIRM,
+        payload: { action: 'reset' },
+      } as unknown as ConversationContextEntity);
+      const reply = await orchestrator.process(user, msg('tidak', 'wr2'));
+      expect(resetData.reset).not.toHaveBeenCalled();
       expect(reply.text).toContain('dibatalkan');
     });
   });

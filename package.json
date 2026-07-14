@@ -45,6 +45,7 @@
     "baileys": "^6.7.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "cron-parser": "^5.6.1",
     "dayjs": "^1.11.21",
     "nestjs-pino": "^4.3.0",
     "pino-http": "^10.3.0",

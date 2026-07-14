@@ -5,6 +5,7 @@ export function toUserEntity(row: PrismaUser): UserEntity {
   return {
     id: row.id,
     waNumber: row.waNumber,
+    chatJid: row.chatJid,
     displayName: row.displayName,
     currency: row.currency,
     timezone: row.timezone,

@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { CategoryRepository } from 'src/modules/category/domain/category.repository';
-import { SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
+import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { TransactionType } from 'src/shared/domain/enums';
 import { CategoryBreakdown, SummaryResult } from '../domain/summary.types';
-import { resolvePeriod } from './period';
+import { customRangeInfo, resolvePeriod } from './period';
 
 /**
  * Builds income/expense summaries with a per-category expense breakdown for a
@@ -22,8 +22,11 @@ export class ReportService {
     period: SummaryPeriod,
     now: Date,
     tz: string,
+    customRange?: DateRangeSpec,
   ): Promise<SummaryResult> {
-    const { range, label } = resolvePeriod(period, now, tz);
+    const { range, label } = customRange
+      ? customRangeInfo(customRange, tz)
+      : resolvePeriod(period, now, tz);
 
     const totals = await this.transactions.sumByType(userId, range);
     const balance = totals.income.subtract(totals.expense);

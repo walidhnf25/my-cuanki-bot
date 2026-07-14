@@ -35,6 +35,7 @@ export class IncomingMessageHandler implements OnModuleInit {
 
     const { user, created } = await this.users.findOrCreate({
       waNumber: message.from,
+      chatJid: message.chatJid,
       displayName: message.pushName,
     });
 
