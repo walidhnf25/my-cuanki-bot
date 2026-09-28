@@ -12,7 +12,7 @@ export interface DomainExceptionOptions {
  * Base class for all application/domain errors.
  *
  * Extends Nest's HttpException so the HTTP layer can render it, while carrying
- * a stable `errorCode` (AppErrorCode) for programmatic handling. The WhatsApp
+ * a stable `errorCode` (AppErrorCode) for programmatic handling. The chat
  * layer (later phases) will map these to friendly Indonesian replies instead
  * of HTTP responses.
  */

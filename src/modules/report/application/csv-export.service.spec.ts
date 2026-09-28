@@ -17,7 +17,7 @@ function tx(over: Partial<TransactionEntity> = {}): TransactionEntity {
     note: null,
     occurredAt: new Date('2026-07-15T05:00:00.000Z'),
     sourceMessage: '',
-    waMessageId: 'w',
+    messageId: 'w',
     deletedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),

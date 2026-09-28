@@ -20,14 +20,8 @@ npm-debug.log*
 /coverage
 .nyc_output
 
-# Prisma generated client
-/prisma/generated
-
-# WhatsApp / Baileys auth session (NEVER commit)
-/storage/wa-session
-/storage
-*.session
-auth_info*
+# Vercel
+.vercel
 
 # OS / editor
 .DS_Store

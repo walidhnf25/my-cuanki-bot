@@ -54,20 +54,33 @@ export class EnvironmentVariables {
 
   @IsString()
   @IsNotEmpty()
-  DATABASE_URL!: string;
+  GOOGLE_SHEETS_SPREADSHEET_ID!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  GOOGLE_SERVICE_ACCOUNT_EMAIL!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  GOOGLE_PRIVATE_KEY!: string;
 
   @IsEnum(ParserDriver)
   PARSER_DRIVER: ParserDriver = ParserDriver.Rule;
 
   @IsString()
   @IsNotEmpty()
-  WA_SESSION_PATH = './storage/wa-session';
+  TELEGRAM_BOT_TOKEN!: string;
+
+  @IsString()
+  @IsOptional()
+  TELEGRAM_WEBHOOK_SECRET?: string;
 
   @IsBoolean()
-  WA_PRINT_QR = true;
+  TELEGRAM_POLLING = false;
 
-  @IsBoolean()
-  WA_AUTOSTART = true;
+  @IsString()
+  @IsOptional()
+  TELEGRAM_ALLOWED_USER_IDS?: string;
 
   @IsBoolean()
   SWAGGER_ENABLED = true;
@@ -79,21 +92,25 @@ export class EnvironmentVariables {
 
 /**
  * Coerces raw string env values (everything from process.env is a string)
- * into the correct primitive types before validation.
+ * into the correct primitive types before validation. Unset variables are
+ * left out entirely so the class defaults apply.
  */
 function coerce(config: Record<string, unknown>): Record<string, unknown> {
-  const toBool = (v: unknown): unknown =>
-    typeof v === 'string' ? v.toLowerCase() === 'true' || v === '1' : v;
-  const toInt = (v: unknown): unknown => (typeof v === 'string' && v.trim() !== '' ? Number(v) : v);
-
-  return {
-    ...config,
-    PORT: toInt(config.PORT),
-    LOG_PRETTY: toBool(config.LOG_PRETTY),
-    WA_PRINT_QR: toBool(config.WA_PRINT_QR),
-    WA_AUTOSTART: toBool(config.WA_AUTOSTART),
-    SWAGGER_ENABLED: toBool(config.SWAGGER_ENABLED),
+  const toBool = (v: string): boolean => v.toLowerCase() === 'true' || v === '1';
+  const toInt = (v: string): number | string => (v.trim() !== '' ? Number(v) : v);
+  const converters: Record<string, (v: string) => unknown> = {
+    PORT: toInt,
+    LOG_PRETTY: toBool,
+    TELEGRAM_POLLING: toBool,
+    SWAGGER_ENABLED: toBool,
   };
+
+  const result: Record<string, unknown> = { ...config };
+  for (const [key, convert] of Object.entries(converters)) {
+    const value = config[key];
+    if (typeof value === 'string') result[key] = convert(value);
+  }
+  return result;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

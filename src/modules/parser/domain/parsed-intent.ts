@@ -7,7 +7,6 @@ export enum IntentType {
   SetBudget = 'SET_BUDGET',
   EditTransaction = 'EDIT_TRANSACTION',
   DeleteTransaction = 'DELETE_TRANSACTION',
-  SetReminder = 'SET_REMINDER',
   Export = 'EXPORT',
   ResetData = 'RESET_DATA',
   Help = 'HELP',
@@ -71,13 +70,6 @@ export interface DeleteTransactionIntent extends BaseIntent {
   type: IntentType.DeleteTransaction;
 }
 
-export interface ReminderIntent extends BaseIntent {
-  type: IntentType.SetReminder;
-  title: string;
-  /** Raw schedule phrase (e.g. "tiap tanggal 5") — compiled to cron in Phase 10. */
-  schedulePhrase: string;
-}
-
 export interface ExportIntent extends BaseIntent {
   type: IntentType.Export;
   period: SummaryPeriod;
@@ -111,7 +103,6 @@ export type ParsedIntent =
   | SetBudgetIntent
   | EditTransactionIntent
   | DeleteTransactionIntent
-  | ReminderIntent
   | ExportIntent
   | ResetDataIntent
   | HelpIntent

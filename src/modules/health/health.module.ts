@@ -1,13 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TerminusModule } from '@nestjs/terminus';
-import { WhatsappHealthIndicator } from '../whatsapp/health/whatsapp.health-indicator';
-import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { HealthController } from './health.controller';
-import { PrismaHealthIndicator } from './indicators/prisma.health-indicator';
+import { SheetsHealthIndicator } from './indicators/sheets.health-indicator';
 
 @Module({
-  imports: [TerminusModule, WhatsappModule],
+  imports: [TerminusModule],
   controllers: [HealthController],
-  providers: [PrismaHealthIndicator, WhatsappHealthIndicator],
+  providers: [SheetsHealthIndicator],
 })
 export class HealthModule {}

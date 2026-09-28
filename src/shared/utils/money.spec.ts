@@ -63,7 +63,7 @@ describe('Money', () => {
     });
   });
 
-  describe('decimal string (Prisma Decimal(18,2))', () => {
+  describe('decimal string', () => {
     it('formats whole amounts with .00', () => {
       expect(Money.fromMajor(25000).toDecimalString()).toBe('25000.00');
     });

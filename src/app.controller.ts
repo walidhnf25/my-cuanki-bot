@@ -13,7 +13,7 @@ export class AppController {
     return {
       name: this.config.get<string>('app.name'),
       status: 'ok',
-      message: 'finance-whatsapp-bot is running 🤖💰',
+      message: 'Cuanki Telegram bot is running 🤖💰',
       env: this.config.get<string>('app.nodeEnv'),
     };
   }

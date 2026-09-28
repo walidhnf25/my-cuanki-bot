@@ -1,52 +1,49 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { PrismaService } from 'src/database/prisma.service';
+import { randomUUID } from 'node:crypto';
+import { cellString, dateCell } from 'src/sheets/cells';
+import { SheetsClient } from 'src/sheets/sheets.client';
 import { SYSTEM_CATEGORIES } from './seed-data';
 
 /**
- * Ensures the system categories + keyword mappings exist on every boot
- * (idempotent). This makes automatic categorization work out-of-the-box in any
- * environment without a separate manual seed step. Failures are logged, never
- * fatal to startup.
+ * Ensures the system categories exist on boot (idempotent) so automatic
+ * categorization works out-of-the-box. Categories already in the sheet are
+ * left untouched, so keywords edited by hand are preserved. Failures are
+ * logged, never fatal to startup.
  */
 @Injectable()
 export class CategorySeederService implements OnApplicationBootstrap {
   private readonly logger = new Logger(CategorySeederService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly sheets: SheetsClient) {}
 
   async onApplicationBootstrap(): Promise<void> {
     try {
-      let categories = 0;
-      let keywords = 0;
+      const rows = await this.sheets.getRows('categories');
+      const existing = new Set(
+        rows
+          .filter((r) => cellString(r.data.user_id) === null)
+          .map((r) => `${cellString(r.data.type)}|${cellString(r.data.name)}`),
+      );
 
-      for (const cat of SYSTEM_CATEGORIES) {
-        const existing = await this.prisma.category.findFirst({
-          where: { userId: null, name: cat.name, type: cat.type },
-        });
-        const category =
-          existing ??
-          (await this.prisma.category.create({
-            data: {
-              userId: null,
-              name: cat.name,
-              type: cat.type,
-              icon: cat.icon,
-              isSystem: true,
-            },
-          }));
-        categories += 1;
+      const now = dateCell(new Date());
+      const missing = SYSTEM_CATEGORIES.filter((c) => !existing.has(`${c.type}|${c.name}`));
+      await this.sheets.append(
+        'categories',
+        missing.map((c) => ({
+          id: randomUUID(),
+          user_id: null,
+          name: c.name,
+          type: c.type,
+          icon: c.icon,
+          is_system: true,
+          keywords: c.keywords.join(', '),
+          created_at: now,
+        })),
+      );
 
-        for (const keyword of cat.keywords) {
-          await this.prisma.categoryKeyword.upsert({
-            where: { categoryId_keyword: { categoryId: category.id, keyword } },
-            create: { categoryId: category.id, keyword },
-            update: {},
-          });
-          keywords += 1;
-        }
+      if (missing.length > 0) {
+        this.logger.log(`Seeded ${missing.length} system categories`);
       }
-
-      this.logger.log(`System categories ensured (${categories} categories, ${keywords} keywords)`);
     } catch (err) {
       this.logger.error({ err }, 'Category seeding failed (non-fatal)');
     }

@@ -17,7 +17,6 @@ import {
   GREETING_WORDS,
   HELP_WORDS,
   INCOME_WORDS,
-  REMINDER_WORDS,
   STOPWORDS,
   SUMMARY_WORDS,
 } from './keywords';
@@ -80,10 +79,6 @@ export class RuleBasedParser extends MessageParser {
         keywords,
         period: this.detectBudgetPeriod(normalized),
       };
-    }
-    if (has(REMINDER_WORDS)) {
-      const title = this.stripWords(raw, REMINDER_WORDS);
-      return { type: IntentType.SetReminder, raw, title, schedulePhrase: raw };
     }
     if (has(EDIT_WORDS)) {
       return {

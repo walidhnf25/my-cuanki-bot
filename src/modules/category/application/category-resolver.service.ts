@@ -3,7 +3,7 @@ import { TransactionType } from 'src/shared/domain/enums';
 import { CategoryEntity } from '../domain/category.entity';
 import { CategoryRepository } from '../domain/category.repository';
 
-/** Default category names used when no keyword matches. Seeded in prisma/seed.ts. */
+/** Default category names used when no keyword matches. Seeded by CategorySeederService. */
 const FALLBACK_NAME: Record<TransactionType, string> = {
   [TransactionType.EXPENSE]: 'Lainnya',
   [TransactionType.INCOME]: 'Pemasukan Lain',

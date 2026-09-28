@@ -2,9 +2,8 @@
  * Money value object.
  *
  * Amounts are stored internally as an integer number of **minor units** (cents)
- * in a `bigint`, so arithmetic is exact — no floating-point drift (NFR-9). The
- * database column is Decimal(18,2); {@link Money.toDecimalString} produces the
- * matching representation.
+ * in a `bigint`, so arithmetic is exact — no floating-point drift (NFR-9).
+ * {@link Money.toDecimalString} gives an exact 2-decimal representation.
  *
  * IDR conventionally has no sub-unit, but we keep 2 decimals for a consistent,
  * currency-agnostic model.
@@ -54,7 +53,7 @@ export class Money {
     return Number(this.minor) / 100;
   }
 
-  /** "25000.00" — matches a Prisma Decimal(18,2) string. */
+  /** "25000.00" — exact decimal string (2 fraction digits). */
   toDecimalString(): string {
     const negative = this.minor < 0n;
     const abs = negative ? -this.minor : this.minor;

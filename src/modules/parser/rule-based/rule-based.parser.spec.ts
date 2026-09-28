@@ -128,13 +128,6 @@ describe('RuleBasedParser', () => {
       expect(intent.type).toBe(IntentType.Export);
     });
 
-    it('parses reminder and keeps the title', async () => {
-      const intent = await parse('ingatkan bayar listrik');
-      expect(intent.type).toBe(IntentType.SetReminder);
-      if (intent.type !== IntentType.SetReminder) return;
-      expect(intent.title).toContain('listrik');
-    });
-
     it('parses help and greeting', async () => {
       expect((await parse('help')).type).toBe(IntentType.Help);
       expect((await parse('bantuan')).type).toBe(IntentType.Help);

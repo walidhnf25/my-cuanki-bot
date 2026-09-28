@@ -6,7 +6,6 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { ErrorResponseDto } from '../dto/error-response.dto';
 import { AppErrorCode } from '../exceptions/app-error-code.enum';
@@ -14,7 +13,7 @@ import { DomainException } from '../exceptions/domain.exception';
 
 /**
  * Catches every unhandled error and renders a consistent {@link ErrorResponseDto}.
- * Maps domain errors, Nest HttpExceptions and known Prisma errors to the right
+ * Maps domain errors and Nest HttpExceptions to the right
  * status + stable error code. Logs 5xx as error and 4xx as warn (with requestId).
  */
 @Catch()
@@ -69,10 +68,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return this.fromHttpException(exception);
     }
 
-    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      return this.fromPrisma(exception);
-    }
-
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       errorCode: AppErrorCode.INTERNAL_ERROR,
@@ -108,42 +103,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       message,
       details,
     };
-  }
-
-  private fromPrisma(exception: Prisma.PrismaClientKnownRequestError): {
-    statusCode: number;
-    errorCode: AppErrorCode;
-    message: string;
-    details?: Record<string, unknown>;
-  } {
-    switch (exception.code) {
-      case 'P2002':
-        return {
-          statusCode: HttpStatus.CONFLICT,
-          errorCode: AppErrorCode.CONFLICT,
-          message: 'Data sudah ada (duplikat)',
-          details: { target: exception.meta?.target },
-        };
-      case 'P2025':
-        return {
-          statusCode: HttpStatus.NOT_FOUND,
-          errorCode: AppErrorCode.NOT_FOUND,
-          message: 'Data tidak ditemukan',
-        };
-      case 'P2003':
-        return {
-          statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-          errorCode: AppErrorCode.UNPROCESSABLE,
-          message: 'Relasi data tidak valid',
-        };
-      default:
-        return {
-          statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-          errorCode: AppErrorCode.INTERNAL_ERROR,
-          message: 'Kesalahan basis data',
-          details: { code: exception.code },
-        };
-    }
   }
 
   private statusToErrorCode(status: number): AppErrorCode {

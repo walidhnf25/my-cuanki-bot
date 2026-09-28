@@ -34,7 +34,7 @@ function txEntity(over: Partial<TransactionEntity> = {}): TransactionEntity {
     note: null,
     occurredAt: new Date('2026-07-15T05:00:00.000Z'),
     sourceMessage: 'beli kopi 25rb',
-    waMessageId: 'wamid-1',
+    messageId: '1001:1',
     deletedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -70,7 +70,7 @@ describe('TransactionService', () => {
       findManyInRange: jest.fn(),
       update: jest.fn(),
       softDelete: jest.fn(),
-      existsByWaMessageId: jest.fn(),
+      existsByMessageId: jest.fn(),
       sumByType: jest.fn(),
       sumByCategory: jest.fn(),
     };
@@ -82,11 +82,11 @@ describe('TransactionService', () => {
 
   describe('record', () => {
     it('resolves category, persists and audits', async () => {
-      transactions.existsByWaMessageId.mockResolvedValue(false);
+      transactions.existsByMessageId.mockResolvedValue(false);
       resolver.resolve.mockResolvedValue(foodCategory);
       transactions.create.mockResolvedValue(txEntity());
 
-      const result = await service.record('u1', recordIntent(), 'wamid-1');
+      const result = await service.record('u1', recordIntent(), '1001:1');
 
       expect(result?.category).toBe(foodCategory);
       expect(transactions.create).toHaveBeenCalledWith(
@@ -96,8 +96,8 @@ describe('TransactionService', () => {
     });
 
     it('is idempotent on a duplicate wa_message_id', async () => {
-      transactions.existsByWaMessageId.mockResolvedValue(true);
-      const result = await service.record('u1', recordIntent(), 'wamid-1');
+      transactions.existsByMessageId.mockResolvedValue(true);
+      const result = await service.record('u1', recordIntent(), '1001:1');
       expect(result).toBeNull();
       expect(transactions.create).not.toHaveBeenCalled();
     });

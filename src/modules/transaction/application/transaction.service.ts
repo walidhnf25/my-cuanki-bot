@@ -35,12 +35,12 @@ export class TransactionService {
   async record(
     userId: string,
     intent: RecordTransactionIntent,
-    waMessageId: string | null,
+    messageId: string | null,
   ): Promise<TransactionResult | null> {
     if (intent.amount === null) return null;
 
-    if (waMessageId && (await this.transactions.existsByWaMessageId(waMessageId))) {
-      this.logger.debug({ waMessageId }, 'Transaction already recorded — skipping');
+    if (messageId && (await this.transactions.existsByMessageId(messageId))) {
+      this.logger.debug({ messageId }, 'Transaction already recorded — skipping');
       return null;
     }
 
@@ -58,7 +58,7 @@ export class TransactionService {
       description: intent.description || category?.name || 'Transaksi',
       occurredAt: intent.occurredAt,
       sourceMessage: intent.raw,
-      waMessageId,
+      messageId,
     });
 
     await this.audit.record({

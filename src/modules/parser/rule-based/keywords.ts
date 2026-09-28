@@ -37,8 +37,6 @@ export const EXPORT_WORDS = ['export', 'ekspor', 'unduh', 'download', 'csv'];
 
 export const BUDGET_WORDS = ['budget', 'anggaran', 'batasi', 'batas'];
 
-export const REMINDER_WORDS = ['ingatkan', 'ingetin', 'reminder', 'remind', 'ingat'];
-
 /** Words indicating money coming IN. */
 export const INCOME_WORDS = [
   'gaji',

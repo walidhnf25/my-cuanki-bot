@@ -16,19 +16,24 @@ export interface LogConfig {
   pretty: boolean;
 }
 
-export interface DatabaseConfig {
-  url: string;
+export interface SheetsConfig {
+  spreadsheetId: string;
+  clientEmail: string;
+  privateKey: string;
 }
 
 export interface ParserConfig {
   driver: string;
 }
 
-export interface WhatsappConfig {
-  sessionPath: string;
-  printQr: boolean;
-  /** Auto-connect to WhatsApp on boot. Disable in tests/CI. */
-  autostart: boolean;
+export interface TelegramConfig {
+  botToken: string;
+  /** Expected `X-Telegram-Bot-Api-Secret-Token` header on webhook calls. */
+  webhookSecret: string;
+  /** Long-poll getUpdates instead of the webhook (local development). */
+  polling: boolean;
+  /** Telegram user ids allowed to use the bot; empty = everyone. */
+  allowedUserIds: string[];
 }
 
 export interface SwaggerConfig {
@@ -39,9 +44,9 @@ export interface SwaggerConfig {
 export interface Configuration {
   app: AppConfig;
   log: LogConfig;
-  database: DatabaseConfig;
+  sheets: SheetsConfig;
   parser: ParserConfig;
-  whatsapp: WhatsappConfig;
+  telegram: TelegramConfig;
   swagger: SwaggerConfig;
 }
 
@@ -59,16 +64,23 @@ export default (): Configuration => {
       level: process.env.LOG_LEVEL ?? 'info',
       pretty: (process.env.LOG_PRETTY ?? 'false').toLowerCase() === 'true',
     },
-    database: {
-      url: process.env.DATABASE_URL ?? '',
+    sheets: {
+      spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID ?? '',
+      clientEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? '',
+      // Env files and dashboards often store the PEM with literal "\n".
+      privateKey: (process.env.GOOGLE_PRIVATE_KEY ?? '').replace(/\n/g, '\n'),
     },
     parser: {
       driver: process.env.PARSER_DRIVER ?? 'rule',
     },
-    whatsapp: {
-      sessionPath: process.env.WA_SESSION_PATH ?? './storage/wa-session',
-      printQr: (process.env.WA_PRINT_QR ?? 'true').toLowerCase() === 'true',
-      autostart: (process.env.WA_AUTOSTART ?? 'true').toLowerCase() === 'true',
+    telegram: {
+      botToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
+      webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET ?? '',
+      polling: (process.env.TELEGRAM_POLLING ?? 'false').toLowerCase() === 'true',
+      allowedUserIds: (process.env.TELEGRAM_ALLOWED_USER_IDS ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0),
     },
     swagger: {
       enabled: (process.env.SWAGGER_ENABLED ?? 'true').toLowerCase() === 'true',

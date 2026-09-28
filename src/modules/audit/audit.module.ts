@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { AuditLogRepository } from './domain/audit-log.repository';
-import { PrismaAuditLogRepository } from './infrastructure/prisma-audit-log.repository';
+import { LoggerAuditLogRepository } from './infrastructure/logger-audit-log.repository';
 
 @Module({
-  providers: [{ provide: AuditLogRepository, useClass: PrismaAuditLogRepository }],
+  providers: [{ provide: AuditLogRepository, useClass: LoggerAuditLogRepository }],
   exports: [AuditLogRepository],
 })
 export class AuditModule {}

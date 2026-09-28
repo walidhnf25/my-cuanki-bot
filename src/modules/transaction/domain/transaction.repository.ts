@@ -31,8 +31,8 @@ export abstract class TransactionRepository {
 
   abstract softDelete(id: string): Promise<void>;
 
-  /** Idempotency guard for inbound WhatsApp messages. */
-  abstract existsByWaMessageId(waMessageId: string): Promise<boolean>;
+  /** Idempotency guard for inbound chat messages. */
+  abstract existsByMessageId(messageId: string): Promise<boolean>;
 
   /** Total income and expense within the range (deleted excluded). */
   abstract sumByType(userId: string, range: DateRange): Promise<TypedTotals>;

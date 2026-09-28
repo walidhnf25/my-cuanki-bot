@@ -11,7 +11,7 @@ export interface TransactionEntity {
   note: string | null;
   occurredAt: Date;
   sourceMessage: string | null;
-  waMessageId: string | null;
+  messageId: string | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -26,7 +26,7 @@ export interface CreateTransactionInput {
   note?: string | null;
   occurredAt: Date;
   sourceMessage?: string | null;
-  waMessageId?: string | null;
+  messageId?: string | null;
 }
 
 export interface UpdateTransactionInput {

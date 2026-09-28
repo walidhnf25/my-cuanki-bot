@@ -9,8 +9,8 @@ export interface SeedCategory {
 }
 
 /**
- * Canonical system categories + keyword mappings. Used by both the runtime
- * bootstrap seeder and the standalone `prisma db seed` script.
+ * Canonical system categories + keyword mappings. Used by the runtime
+ * bootstrap seeder (CategorySeederService).
  */
 export const SYSTEM_CATEGORIES: SeedCategory[] = [
   {

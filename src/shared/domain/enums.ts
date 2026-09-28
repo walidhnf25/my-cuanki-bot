@@ -1,7 +1,7 @@
 /**
- * Domain-level enums. Values are intentionally identical to the Prisma enums
- * so mappers can cast between them, but the domain does not import Prisma —
- * keeping the core independent of the persistence detail.
+ * Domain-level enums. The string values are what gets stored in the
+ * spreadsheet, so they must stay stable. The domain never imports storage
+ * code, keeping the core independent of the persistence detail.
  */
 
 export enum TransactionType {
