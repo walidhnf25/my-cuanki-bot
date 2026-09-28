@@ -121,7 +121,11 @@ export class SheetsCategoryRepository extends CategoryRepository {
     return category;
   }
 
+  /** All categories; rows repeating an id (concurrent seeding) keep the first one. */
   private async all(): Promise<CategoryRow[]> {
-    return (await this.sheets.getRows(SHEET)).map((r) => toCategoryRow(r.data));
+    const seen = new Set<string>();
+    return (await this.sheets.getRows(SHEET))
+      .map((r) => toCategoryRow(r.data))
+      .filter(({ category }) => !seen.has(category.id) && !!seen.add(category.id));
   }
 }

@@ -1,8 +1,18 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { cellString, dateCell } from 'src/sheets/cells';
 import { SheetsClient } from 'src/sheets/sheets.client';
-import { SYSTEM_CATEGORIES } from './seed-data';
+import { SeedCategory, SYSTEM_CATEGORIES } from './seed-data';
+
+/**
+ * Deterministic id (e.g. `system-expense-pemasukan-lain`). Serverless cold
+ * starts can seed concurrently and append the same category twice; a stable id
+ * lets the repository collapse those duplicates instead of treating them as
+ * distinct categories.
+ */
+export function systemCategoryId(category: Pick<SeedCategory, 'type' | 'name'>): string {
+  const slug = category.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  return `system-${category.type.toLowerCase()}-${slug}`;
+}
 
 /**
  * Ensures the system categories exist on boot (idempotent) so automatic
@@ -30,7 +40,7 @@ export class CategorySeederService implements OnApplicationBootstrap {
       await this.sheets.append(
         'categories',
         missing.map((c) => ({
-          id: randomUUID(),
+          id: systemCategoryId(c),
           user_id: null,
           name: c.name,
           type: c.type,
