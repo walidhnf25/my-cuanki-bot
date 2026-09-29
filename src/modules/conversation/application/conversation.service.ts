@@ -30,6 +30,16 @@ export class ConversationService {
     });
   }
 
+  /** Remember a complete transaction that still needs a wallet and wait for the reply. */
+  async awaitWallet(userId: string, pending: PendingTransaction, now: Date): Promise<void> {
+    await this.repository.set({
+      userId,
+      state: ConversationState.AWAITING_WALLET,
+      payload: pending as unknown as Record<string, unknown>,
+      expiresAt: new Date(now.getTime() + CONTEXT_TTL_MS),
+    });
+  }
+
   /** Ask the user to confirm deleting their latest transaction. */
   async awaitDeleteConfirm(userId: string, now: Date): Promise<void> {
     await this.repository.set({

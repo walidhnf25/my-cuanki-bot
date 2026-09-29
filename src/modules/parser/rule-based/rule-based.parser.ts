@@ -41,6 +41,10 @@ export class RuleBasedParser extends MessageParser {
     return extractAmount(text)?.amount ?? null;
   }
 
+  parseWallet(text: string): Wallet | null {
+    return this.detectWallet(new Set(tokenize(text)));
+  }
+
   private parseSync(input: ParseInput): ParsedIntent {
     const raw = input.text.trim();
     const now = input.now ?? new Date();

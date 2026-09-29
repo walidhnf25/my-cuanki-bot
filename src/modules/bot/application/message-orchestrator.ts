@@ -71,12 +71,46 @@ export class MessageOrchestrator {
   ): Promise<OutgoingReply | null> {
     if (context.state === ConversationState.AWAITING_AMOUNT) {
       if (intent.type === IntentType.AmountOnly) {
-        const reply = await this.completePending(user, context.payload, intent.amount, message);
+        // Clear first: finishing the transaction may open a new follow-up (wallet question).
         await this.conversation.clear(user.id);
-        return reply;
+        return this.completePending(user, context.payload, intent.amount, message);
       }
       if (intent.type === IntentType.Unknown || intent.type === IntentType.Greeting) {
         return { text: this.replies.askAmount() };
+      }
+      return null;
+    }
+
+    if (context.state === ConversationState.AWAITING_WALLET) {
+      const pending = context.payload as unknown as PendingTransaction | null;
+      if (!pending?.amount) return null;
+
+      const wallet = this.parser.parseWallet(message.text);
+      if (wallet !== null) {
+        const intent: RecordTransactionIntent = {
+          type: IntentType.RecordTransaction,
+          raw: pending.raw ?? message.text,
+          transactionType: pending.transactionType,
+          amount: Money.fromMajor(pending.amount),
+          description: pending.description,
+          keywords: pending.keywords,
+          occurredAt: new Date(pending.occurredAt),
+          wallet,
+        };
+        await this.conversation.clear(user.id);
+        return this.recordAndReply(
+          user,
+          intent,
+          pending.messageId ?? message.messageId,
+          message.timestamp,
+        );
+      }
+      if (this.yesNo(message.text) === 'no') {
+        await this.conversation.clear(user.id);
+        return { text: this.replies.cancelled() };
+      }
+      if (intent.type === IntentType.Unknown || intent.type === IntentType.Greeting) {
+        return { text: this.replies.askWalletRetry() };
       }
       return null;
     }
@@ -253,11 +287,33 @@ export class MessageOrchestrator {
     now: Date,
   ): Promise<OutgoingReply> {
     // A wallet named in the message wins; otherwise fall back to the user's default.
-    const result = await this.transactions.record(
-      user.id,
-      { ...intent, wallet: intent.wallet ?? user.defaultWallet },
-      messageId,
-    );
+    const wallet = intent.wallet ?? user.defaultWallet;
+
+    // Users who already use wallets but never chose a default get asked, so the
+    // transaction lands in the right one. Everyone else keeps the silent behaviour.
+    if (
+      wallet === null &&
+      intent.amount !== null &&
+      (await this.wallets.current(user.id)).enabled
+    ) {
+      await this.conversation.awaitWallet(
+        user.id,
+        {
+          transactionType: intent.transactionType,
+          description: intent.description,
+          keywords: intent.keywords,
+          occurredAt: intent.occurredAt.toISOString(),
+          wallet: null,
+          amount: intent.amount.toDecimalString(),
+          raw: intent.raw,
+          messageId,
+        },
+        now,
+      );
+      return { text: this.replies.askWallet(intent.description, intent.amount) };
+    }
+
+    const result = await this.transactions.record(user.id, { ...intent, wallet }, messageId);
     if (!result) return {};
 
     let text = this.replies.recorded(result, user.timezone);

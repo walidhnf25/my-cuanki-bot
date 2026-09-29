@@ -87,6 +87,20 @@ export class ReplyBuilder {
     }
   }
 
+  askWallet(description: string, amount: Money): string {
+    const what = description ? ` *${description}*` : '';
+    return [
+      `👛 Pakai dompet apa untuk${what} ${amount.format()}?`,
+      '',
+      'Balas *cash* atau *digital*.',
+      '_Tip: atur default dengan_ default digital',
+    ].join('\n');
+  }
+
+  askWalletRetry(): string {
+    return 'Balas *cash* atau *digital* ya. 🙂 Ketik *batal* untuk membatalkan.';
+  }
+
   askAmount(description?: string): string {
     return description ? `💰 Berapa harga *${description}*?` : '💰 Berapa harganya?';
   }

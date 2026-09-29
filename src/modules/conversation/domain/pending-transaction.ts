@@ -12,4 +12,9 @@ export interface PendingTransaction {
   occurredAt: string;
   /** Wallet named in the original message (absent in older payloads). */
   wallet?: Wallet | null;
+  /** Set when the transaction is only waiting for its wallet (decimal string, e.g. "25000.00"). */
+  amount?: string;
+  raw?: string;
+  /** Original chat message id, kept so the eventual record stays idempotent. */
+  messageId?: string;
 }
