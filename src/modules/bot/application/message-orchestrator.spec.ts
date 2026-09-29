@@ -570,6 +570,8 @@ describe('MessageOrchestrator', () => {
             'u1',
             Wallet.CASH,
             expect.objectContaining({}),
+            NOW,
+            'w50',
           );
           expect(wallets.setOpeningBalance.mock.calls[0][2].toNumber()).toBe(200000);
           expect(conversation.awaitOpeningBalance).toHaveBeenCalledWith(
@@ -759,13 +761,22 @@ describe('MessageOrchestrator', () => {
     });
 
     it('sets the opening balance', async () => {
-      const reply = await orchestrator.process(user, msg('saldo awal digital 1 juta'));
+      const reply = await orchestrator.process(user, msg('saldo awal digital 1 juta', 'w60'));
       expect(wallets.setOpeningBalance).toHaveBeenCalledWith(
         'u1',
         Wallet.DIGITAL,
         expect.objectContaining({}),
+        NOW,
+        'w60',
       );
       expect(reply.text).toContain('Rp1.000.000');
+      expect(reply.text).toContain('Pemasukan');
+    });
+
+    it('removes the opening balance when it is set to zero', async () => {
+      const reply = await orchestrator.process(user, msg('saldo awal digital 0'));
+      expect(wallets.setOpeningBalance.mock.calls[0][2].toNumber()).toBe(0);
+      expect(reply.text).toContain('dihapus');
     });
 
     it('asks again when the opening balance is incomplete', async () => {

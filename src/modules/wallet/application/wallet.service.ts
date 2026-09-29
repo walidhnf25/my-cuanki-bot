@@ -1,12 +1,20 @@
 import { Injectable } from '@nestjs/common';
+import { OPENING_BALANCE_CATEGORY } from 'src/modules/category/seed-data';
 import { CategoryRepository } from 'src/modules/category/domain/category.repository';
 import { customRangeInfo, resolvePeriod } from 'src/modules/report/application/period';
 import { CategoryBreakdown } from 'src/modules/report/domain/summary.types';
 import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
+import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
-import { activeWallets, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
+import {
+  activeWallets,
+  DEFAULT_WALLET,
+  TransactionType,
+  Wallet,
+  WalletMode,
+} from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { TransferEntity } from '../domain/transfer.entity';
 import { TransferRepository } from '../domain/transfer.repository';
@@ -24,7 +32,7 @@ export interface WalletLine {
   /** Transfers received / sent over the reported window. */
   transferIn: Money;
   transferOut: Money;
-  /** Current balance: opening + all-time income - expense + transfers in - transfers out. */
+  /** Balance at the end of the reported window (now, for the current periods). */
   balance: Money;
   /** Expense per category over the reported window, largest first (empty for current()). */
   categories: CategoryBreakdown[];
@@ -42,6 +50,9 @@ export interface WalletOverview {
 }
 
 const WALLETS = [Wallet.CASH, Wallet.DIGITAL] as const;
+
+/** Marks the income entry that holds a wallet's opening balance. */
+export const OPENING_BALANCE_NOTE = 'SALDO_AWAL';
 
 function opening(user: UserEntity, wallet: Wallet): Money | null {
   return wallet === Wallet.CASH ? user.openingCash : user.openingDigital;
@@ -172,6 +183,13 @@ export class WalletService {
     return { ok: true };
   }
 
+  /** Opening-balance income entries of the user, for the given wallet. */
+  private async openingEntries(userId: string, wallet: Wallet): Promise<TransactionEntity[]> {
+    return (await this.transactions.findByNote(userId, OPENING_BALANCE_NOTE)).filter(
+      (t) => (t.wallet ?? DEFAULT_WALLET) === wallet,
+    );
+  }
+
   private async inUse(user: UserEntity, wallet: Wallet): Promise<boolean> {
     const opening0 = opening(user, wallet);
     if (opening0 !== null && !opening0.isZero()) return true;
@@ -180,11 +198,79 @@ export class WalletService {
     return !moved.in.isZero() || !moved.out.isZero();
   }
 
-  async setOpeningBalance(userId: string, wallet: Wallet, amount: Money): Promise<UserEntity> {
-    return this.users.update(
-      userId,
-      wallet === Wallet.CASH ? { openingCash: amount } : { openingDigital: amount },
+  /**
+   * Set a wallet's opening balance. It is recorded as an income entry ("Saldo Awal")
+   * dated now, so it shows up under Pemasukan and in the wallet's "Masuk". Setting it
+   * again replaces the previous entry; zero just removes it.
+   */
+  async setOpeningBalance(
+    userId: string,
+    wallet: Wallet,
+    amount: Money,
+    now: Date,
+    messageId: string | null,
+  ): Promise<TransactionEntity | null> {
+    for (const previous of await this.openingEntries(userId, wallet)) {
+      await this.transactions.softDelete(previous.id);
+    }
+    await this.clearLegacyOpening(userId, wallet);
+    if (amount.isZero()) return null;
+    return this.createOpeningEntry(userId, wallet, amount, now, messageId);
+  }
+
+  private async createOpeningEntry(
+    userId: string,
+    wallet: Wallet,
+    amount: Money,
+    occurredAt: Date,
+    messageId: string | null,
+  ): Promise<TransactionEntity> {
+    const category = await this.categories.findByNameAndType(
+      OPENING_BALANCE_CATEGORY,
+      TransactionType.INCOME,
+      null,
     );
+    return this.transactions.create({
+      userId,
+      categoryId: category?.id ?? null,
+      type: TransactionType.INCOME,
+      amount,
+      description: 'Saldo awal',
+      note: OPENING_BALANCE_NOTE,
+      occurredAt,
+      messageId,
+      wallet,
+    });
+  }
+
+  private async clearLegacyOpening(userId: string, wallet: Wallet): Promise<void> {
+    const user = await this.users.findById(userId);
+    if (!user || opening(user, wallet) === null) return;
+    await this.users.update(
+      userId,
+      wallet === Wallet.CASH ? { openingCash: null } : { openingDigital: null },
+    );
+  }
+
+  /**
+   * One-off conversion of opening balances stored on the user row (the old way) into
+   * "Saldo Awal" income entries dated `now`. Safe to repeat: an entry is created at
+   * most once per wallet (guarded by a deterministic message id), and the old value
+   * is cleared afterwards. Returns the user as it stands after the conversion.
+   */
+  async migrateLegacyOpening(user: UserEntity, now: Date): Promise<UserEntity> {
+    const legacy = WALLETS.map((wallet) => ({ wallet, amount: opening(user, wallet) })).filter(
+      (l): l is { wallet: Wallet; amount: Money } => l.amount !== null,
+    );
+    if (legacy.length === 0) return user;
+
+    for (const { wallet, amount } of legacy) {
+      const key = `opening-migration:${user.id}:${wallet}`;
+      if (!amount.isZero() && !(await this.transactions.existsByMessageId(key))) {
+        await this.createOpeningEntry(user.id, wallet, amount, now, key);
+      }
+    }
+    return this.users.update(user.id, { openingCash: null, openingDigital: null });
   }
 
   async setDefault(userId: string, wallet: Wallet): Promise<UserEntity> {
@@ -202,11 +288,18 @@ export class WalletService {
 
   private async build(userId: string, range?: { start: Date; end: Date }): Promise<WalletOverview> {
     const user = await this.users.findById(userId);
-    const windowTotals = range ? await this.transactions.sumByWallet(userId, range) : undefined;
-    const allTime = await this.transactions.sumByWallet(userId);
-    const shown = windowTotals ?? allTime;
-    const moved = await this.transfers.sumByWallet(userId);
-    const movedShown = range ? await this.transfers.sumByWallet(userId, range) : moved;
+    // What happened inside the window, and everything up to its end (all time when
+    // no window is given). The balance is the latter, so a ledger always adds up.
+    const window = range ? await this.transactions.sumByWallet(userId, range) : undefined;
+    const upTo = range
+      ? await this.transactions.sumByWallet(userId, { start: new Date(0), end: range.end })
+      : await this.transactions.sumByWallet(userId);
+    const shown = window ?? upTo;
+    const movedWindow = range ? await this.transfers.sumByWallet(userId, range) : undefined;
+    const movedUpTo = range
+      ? await this.transfers.sumByWallet(userId, { start: new Date(0), end: range.end })
+      : await this.transfers.sumByWallet(userId);
+    const movedShown = movedWindow ?? movedUpTo;
 
     const implicit = user
       ? user.defaultWallet !== null ||
@@ -219,11 +312,12 @@ export class WalletService {
     const mode = user?.walletMode ?? (implicit ? WalletMode.BOTH : null);
 
     const lines: WalletLine[] = activeWallets(mode).map((wallet) => {
+      // A legacy opening balance (not yet converted) still counts until it is migrated.
       const balance = (user ? (opening(user, wallet) ?? Money.zero()) : Money.zero())
-        .add(allTime[wallet].income)
-        .subtract(allTime[wallet].expense)
-        .add(moved[wallet].in)
-        .subtract(moved[wallet].out);
+        .add(upTo[wallet].income)
+        .subtract(upTo[wallet].expense)
+        .add(movedUpTo[wallet].in)
+        .subtract(movedUpTo[wallet].out);
       return {
         wallet,
         startBalance: balance

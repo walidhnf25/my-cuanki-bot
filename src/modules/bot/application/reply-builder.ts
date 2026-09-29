@@ -174,7 +174,7 @@ export class ReplyBuilder {
       `💸 Pengeluaran: ${result.expense.format()}`,
       // With wallets, "Saldo" would clash with the all-time wallet balances below.
       wallets?.enabled
-        ? `💵 Selisih periode: ${result.balance.format()}`
+        ? `💵 Selisih: ${result.balance.format()}`
         : `💵 Saldo: ${result.balance.format()}`,
     ];
 
@@ -191,7 +191,7 @@ export class ReplyBuilder {
         lines.push(
           '',
           `*${WALLET_LABEL[l.wallet]}*`,
-          `🏁 Awal periode: ${l.startBalance.format()}`,
+          ...(l.startBalance.isZero() ? [] : [`🏁 Saldo sebelumnya: ${l.startBalance.format()}`]),
           `⬆️ Masuk: ${l.income.format()}`,
           `⬇️ Keluar: ${l.expense.format()}`,
         );
@@ -348,7 +348,11 @@ export class ReplyBuilder {
   }
 
   openingBalanceSet(wallet: Wallet, amount: Money): string {
-    return `✅ Saldo awal ${WALLET_LABEL[wallet]} diatur: *${amount.format()}*`;
+    if (amount.isZero()) return `✅ Saldo awal ${WALLET_LABEL[wallet]} dihapus.`;
+    return [
+      `✅ Saldo awal ${WALLET_LABEL[wallet]} dicatat: *${amount.format()}*`,
+      '_Masuk ke Pemasukan. Isi lagi untuk menggantinya._',
+    ].join('\n');
   }
 
   askOpeningBalance(): string {
@@ -443,7 +447,7 @@ export class ReplyBuilder {
       '*👛 Saldo & pengaturan dompet:*',
       '• _saldo_ (saldo cash dan digital)',
       '• _atur dompet_ (pilih cash saja, digital saja, atau keduanya)',
-      '• _saldo awal cash 200rb_',
+      '• _saldo awal cash 200rb_ (dicatat sebagai pemasukan)',
       '• _default digital_ (dompet jika tidak disebut)',
       '• _edit ke digital_ (ubah dompet transaksi terakhir)',
       '',

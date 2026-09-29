@@ -156,13 +156,13 @@ describe('CsvExportService (xlsx)', () => {
       expect(sheet.getRow(15).values).toEqual([
         undefined,
         'Per Dompet',
-        'Awal Periode',
+        'Saldo Sebelumnya',
         'Pemasukan',
         'Pengeluaran',
         'Transfer',
         'Saldo',
       ]);
-      // Awal Periode + Pemasukan - Pengeluaran + Transfer = Saldo on every row.
+      // Saldo Sebelumnya + Pemasukan - Pengeluaran + Transfer = Saldo on every row.
       const ledger = (row: number) =>
         [2, 3, 4, 5, 6].map((c) => sheet.getRow(row).getCell(c).value as number);
       expect(sheet.getCell('A16').value).toBe('Cash');
@@ -185,6 +185,48 @@ describe('CsvExportService (xlsx)', () => {
       expect(sheet.getCell('C21').value).toBe(25000);
       expect(sheet.getCell('D21').value).toBe(25000);
       expect(sheet.getCell('E21').value).toBe(50000);
+    });
+
+    it('leaves out the Saldo Sebelumnya column when nothing was carried in', async () => {
+      transactions.findManyInRange.mockResolvedValue([
+        tx({ description: 'kopi', wallet: null }),
+        tx({ description: 'bensin', wallet: Wallet.DIGITAL }),
+      ]);
+      categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
+      const nothingCarried = {
+        ...overview,
+        lines: [
+          { ...overview.lines[0], startBalance: Money.zero() },
+          {
+            ...overview.lines[1],
+            startBalance: Money.zero(),
+            balance: Money.fromMajor(-10000), // 0 - 10.000
+          },
+        ],
+        total: Money.fromMajor(65000),
+      };
+
+      const out = await service.export(
+        'u1',
+        SummaryPeriod.Month,
+        new Date(),
+        'Asia/Jakarta',
+        undefined,
+        nothingCarried,
+      );
+      const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
+
+      expect(sheet.getRow(15).values).toEqual([
+        undefined,
+        'Per Dompet',
+        'Pemasukan',
+        'Pengeluaran',
+        'Transfer',
+        'Saldo',
+      ]);
+      expect(sheet.getCell('B16').value).toBe(100000); // Pemasukan (was C)
+      expect(sheet.getCell('E16').value).toBe(75000); // Saldo (was F)
+      expect(sheet.getCell('E18').value).toBe(65000); // Total Saldo
     });
 
     it('shows the net transfer per wallet in the ledger', async () => {

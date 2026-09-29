@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs';
 import { CategoryRepository } from 'src/modules/category/domain/category.repository';
 import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
-import { WalletOverview } from 'src/modules/wallet/application/wallet.service';
+import { WalletLine, WalletOverview } from 'src/modules/wallet/application/wallet.service';
 import { TransferEntity } from 'src/modules/wallet/domain/transfer.entity';
 import { DEFAULT_WALLET, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
@@ -192,9 +192,8 @@ function addWalletBreakdown(
   return r + 1;
 }
 
-/** Per-wallet table: money in/out over the period and the current balance. */
 /**
- * Two-wallet balance ledger: Awal Periode + Pemasukan - Pengeluaran + Transfer = Saldo,
+ * Two-wallet balance ledger: Saldo Sebelumnya + Pemasukan - Pengeluaran + Transfer = Saldo,
  * so every wallet balance can be traced. Uses all six sheet columns.
  */
 function addWalletLedger(
@@ -202,22 +201,34 @@ function addWalletLedger(
   startRow: number,
   overview: WalletOverview,
 ): number {
+  // "Saldo Sebelumnya" only appears when some wallet carries a balance in from before
+  // the report window; otherwise it is a column of zeros.
+  const showStart = overview.lines.some((l) => !l.startBalance.isZero());
+  const columns: Array<{ header: string; value: (l: WalletLine) => number }> = [
+    ...(showStart
+      ? [{ header: 'Saldo Sebelumnya', value: (l: WalletLine) => toRupiah(l.startBalance) }]
+      : []),
+    { header: 'Pemasukan', value: (l) => toRupiah(l.income) },
+    { header: 'Pengeluaran', value: (l) => toRupiah(l.expense) },
+    { header: 'Transfer', value: (l) => toRupiah(l.transferIn.subtract(l.transferOut)) },
+    { header: 'Saldo', value: (l) => toRupiah(l.balance) },
+  ];
+  const last = columns.length + 1; // column A holds the wallet name
+
   const header = sheet.getRow(startRow);
-  header.values = ['Per Dompet', 'Awal Periode', 'Pemasukan', 'Pengeluaran', 'Transfer', 'Saldo'];
-  styleHeader(header, COLOR.primary, 6);
+  header.values = ['Per Dompet', ...columns.map((c) => c.header)];
+  styleHeader(header, COLOR.primary, last);
 
   let r = startRow + 1;
   overview.lines.forEach((line, i) => {
     const row = sheet.getRow(r);
     row.getCell(1).value = WALLET_NAME[line.wallet];
-    row.getCell(2).value = toRupiah(line.startBalance);
-    row.getCell(3).value = toRupiah(line.income);
-    row.getCell(4).value = toRupiah(line.expense);
-    row.getCell(5).value = toRupiah(line.transferIn.subtract(line.transferOut));
-    row.getCell(6).value = toRupiah(line.balance);
-    for (let c = 2; c <= 6; c++) row.getCell(c).numFmt = RUPIAH_FORMAT;
-    row.getCell(6).font = { bold: true };
-    for (let c = 1; c <= 6; c++) {
+    columns.forEach((c, j) => {
+      row.getCell(j + 2).value = c.value(line);
+      row.getCell(j + 2).numFmt = RUPIAH_FORMAT;
+    });
+    row.getCell(last).font = { bold: true };
+    for (let c = 1; c <= last; c++) {
       row.getCell(c).border = BORDER;
       if (i % 2 === 1) row.getCell(c).fill = fill(COLOR.stripe);
     }
@@ -226,9 +237,9 @@ function addWalletLedger(
 
   const total = sheet.getRow(r);
   total.getCell(1).value = 'Total Saldo';
-  total.getCell(6).value = toRupiah(overview.total);
-  total.getCell(6).numFmt = RUPIAH_FORMAT;
-  for (let c = 1; c <= 6; c++) {
+  total.getCell(last).value = toRupiah(overview.total);
+  total.getCell(last).numFmt = RUPIAH_FORMAT;
+  for (let c = 1; c <= last; c++) {
     total.getCell(c).font = { bold: true };
     total.getCell(c).fill = fill(COLOR.stripe);
     total.getCell(c).border = BORDER;
@@ -236,6 +247,7 @@ function addWalletLedger(
   return r + 2;
 }
 
+/** One-wallet table: money in/out over the period and the balance. */
 function addWalletTable(
   sheet: ExcelJS.Worksheet,
   startRow: number,

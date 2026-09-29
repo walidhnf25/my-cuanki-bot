@@ -177,6 +177,12 @@ export class SheetsTransactionRepository extends TransactionRepository {
     return totals;
   }
 
+  async findByNote(userId: string, note: string): Promise<TransactionEntity[]> {
+    return (await this.active())
+      .map((r) => r.tx)
+      .filter((tx) => tx.userId === userId && tx.note === note);
+  }
+
   async hasTransactionsInWallet(userId: string, wallet: Wallet): Promise<boolean> {
     return (await this.active()).some(
       (r) => r.tx.userId === userId && (r.tx.wallet ?? DEFAULT_WALLET) === wallet,

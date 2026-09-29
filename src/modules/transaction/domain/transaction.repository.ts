@@ -44,6 +44,9 @@ export abstract class TransactionRepository {
    */
   abstract sumByWallet(userId: string, range?: DateRange): Promise<Record<Wallet, TypedTotals>>;
 
+  /** Non-deleted transactions of the user carrying the given note marker. */
+  abstract findByNote(userId: string, note: string): Promise<TransactionEntity[]>;
+
   /** True when any non-deleted transaction sits in the wallet (blank counts as CASH). */
   abstract hasTransactionsInWallet(userId: string, wallet: Wallet): Promise<boolean>;
 

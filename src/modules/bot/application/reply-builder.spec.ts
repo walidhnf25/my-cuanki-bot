@@ -111,7 +111,7 @@ describe('ReplyBuilder', () => {
     expect(text).toContain('Per dompet');
 
     // Period figures are labelled as a difference; the real balance is the wallet total.
-    expect(text).toContain('Selisih periode: Rp50');
+    expect(text).toContain('Selisih: Rp50');
     expect(text).not.toContain('💵 Saldo:');
     expect(text).toContain('Total saldo dompet: *Rp2.000*');
     expect(replies.summary(summary)).toContain('💵 Saldo: Rp50');
@@ -119,7 +119,8 @@ describe('ReplyBuilder', () => {
       '💵 Saldo: Rp50',
     );
     expect(text).toContain('💰 Saldo: *Rp1.000*');
-    expect(text).toContain('🏁 Awal periode: Rp0');
+    // Nothing carried over: the line stays out instead of showing Rp0.
+    expect(text).not.toContain('Saldo sebelumnya');
     expect(text).toContain('⬆️ Masuk: Rp0');
     expect(text).toContain('⬇️ Keluar: Rp0');
 
@@ -211,7 +212,7 @@ describe('ReplyBuilder', () => {
     const cash = text.slice(text.indexOf('Cash'), text.indexOf('Digital'));
 
     const order = [
-      'Awal periode: Rp100.000',
+      'Saldo sebelumnya: Rp100.000',
       'Masuk: Rp50.000',
       'Keluar: Rp20.000',
       'Transfer: masuk Rp0 · keluar Rp10.000',
@@ -221,9 +222,16 @@ describe('ReplyBuilder', () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order); // read top to bottom
 
     const digital = text.slice(text.indexOf('Digital'));
-    expect(digital).toContain('Awal periode: Rp522.000');
+    expect(digital).toContain('Saldo sebelumnya: Rp522.000');
     expect(digital).toContain('Transfer: masuk Rp10.000 · keluar Rp0');
     expect(digital).toContain('Saldo: *Rp532.000*');
+  });
+
+  it('words the opening balance confirmation as income, and zero as removal', () => {
+    const set = replies.openingBalanceSet(Wallet.CASH, Money.fromMajor(200000));
+    expect(set).toContain('Rp200.000');
+    expect(set).toContain('Pemasukan');
+    expect(replies.openingBalanceSet(Wallet.CASH, Money.zero())).toContain('dihapus');
   });
 
   it('describes each wallet mode and explains a refused change', () => {

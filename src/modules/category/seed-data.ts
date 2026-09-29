@@ -12,7 +12,16 @@ export interface SeedCategory {
  * Canonical system categories + keyword mappings. Used by the runtime
  * bootstrap seeder (CategorySeederService).
  */
+export const OPENING_BALANCE_CATEGORY = 'Saldo Awal';
+
 export const SYSTEM_CATEGORIES: SeedCategory[] = [
+  {
+    name: OPENING_BALANCE_CATEGORY,
+    type: TransactionType.INCOME,
+    icon: '🏦',
+    // Never matched from free text: only the wallet feature assigns it.
+    keywords: [],
+  },
   {
     name: 'Makanan',
     type: TransactionType.EXPENSE,

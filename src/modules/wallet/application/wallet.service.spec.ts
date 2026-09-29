@@ -46,9 +46,14 @@ describe('WalletService', () => {
       hasExplicitWallet: jest.fn().mockResolvedValue(false),
       sumByCategory: jest.fn().mockResolvedValue([]),
       hasTransactionsInWallet: jest.fn().mockResolvedValue(false),
+      findByNote: jest.fn().mockResolvedValue([]),
+      existsByMessageId: jest.fn().mockResolvedValue(false),
+      softDelete: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn().mockImplementation((input) => Promise.resolve({ id: 'new', ...input })),
     } as unknown as jest.Mocked<TransactionRepository>;
     categories = {
       findById: jest.fn().mockResolvedValue({ name: 'Makanan', icon: '🍜' }),
+      findByNameAndType: jest.fn().mockResolvedValue({ id: 'system-income-saldo-awal' }),
     } as unknown as jest.Mocked<CategoryRepository>;
     users = {
       findById: jest.fn().mockResolvedValue(user()),
@@ -98,7 +103,7 @@ describe('WalletService', () => {
     expect((await service.current('u1')).enabled).toBe(true);
   });
 
-  it('reports period income/expense but all-time balances in overview()', async () => {
+  it('reports window income/expense and the balance as of the end of the window', async () => {
     transactions.sumByWallet
       .mockResolvedValueOnce({
         [Wallet.CASH]: { income: Money.fromMajor(1000), expense: Money.fromMajor(200) },
@@ -115,8 +120,9 @@ describe('WalletService', () => {
       new Date('2026-07-15T03:00:00Z'),
       'Asia/Jakarta',
     );
+    // First the window itself, then everything up to its end (from the beginning of time).
     expect(transactions.sumByWallet.mock.calls[0][1]).toBeDefined();
-    expect(transactions.sumByWallet.mock.calls[1][1]).toBeUndefined();
+    expect(transactions.sumByWallet.mock.calls[1][1]?.start.getTime()).toBe(0);
     expect(overview.lines[0].income.toNumber()).toBe(1000);
     expect(overview.lines[0].balance.toNumber()).toBe(400000);
   });
@@ -159,7 +165,7 @@ describe('WalletService', () => {
       // Period (September): cash +50.000 -20.000; all time: +200.000 -80.000.
       transactions.sumByWallet.mockImplementation((_u, range) =>
         Promise.resolve(
-          range
+          range && range.start.getTime() > 0
             ? {
                 [Wallet.CASH]: { income: Money.fromMajor(50000), expense: Money.fromMajor(20000) },
                 [Wallet.DIGITAL]: zero(),
@@ -173,9 +179,10 @@ describe('WalletService', () => {
       // Transfers: period +30.000 -5.000; all time +40.000 -15.000.
       transfers.sumByWallet.mockImplementation((_u, range) =>
         Promise.resolve({
-          [Wallet.CASH]: range
-            ? { in: Money.fromMajor(30000), out: Money.fromMajor(5000) }
-            : { in: Money.fromMajor(40000), out: Money.fromMajor(15000) },
+          [Wallet.CASH]:
+            range && range.start.getTime() > 0
+              ? { in: Money.fromMajor(30000), out: Money.fromMajor(5000) }
+              : { in: Money.fromMajor(40000), out: Money.fromMajor(15000) },
           [Wallet.DIGITAL]: { in: Money.zero(), out: Money.zero() },
         }),
       );
@@ -200,6 +207,37 @@ describe('WalletService', () => {
           .subtract(cash.transferOut)
           .equals(cash.balance),
       ).toBe(true);
+    });
+
+    it('shows the balance as of the end of a past window, not the balance today', async () => {
+      const augustEnd = new Date('2026-08-31T16:59:59.999Z'); // end of Aug in Jakarta
+      transactions.sumByWallet.mockImplementation((_u, range) =>
+        Promise.resolve(
+          range && range.end.getTime() <= augustEnd.getTime()
+            ? {
+                [Wallet.CASH]: { income: Money.fromMajor(100000), expense: Money.zero() },
+                [Wallet.DIGITAL]: zero(),
+              }
+            : {
+                // September movements exist, but must not leak into an August view.
+                [Wallet.CASH]: { income: Money.fromMajor(900000), expense: Money.zero() },
+                [Wallet.DIGITAL]: zero(),
+              },
+        ),
+      );
+
+      const overview = await service.overview(
+        'u1',
+        SummaryPeriod.Month,
+        new Date('2026-08-15T03:00:00Z'),
+        'Asia/Jakarta',
+      );
+
+      const upToEnd = transactions.sumByWallet.mock.calls[1][1]!;
+      expect(upToEnd.start.getTime()).toBe(0);
+      expect(upToEnd.end.getTime()).toBe(augustEnd.getTime());
+      expect(overview.lines[0].balance.toNumber()).toBe(100000);
+      expect(overview.lines[0].startBalance.toNumber()).toBe(0);
     });
 
     it('equals the opening balance when every movement falls inside the period', async () => {
@@ -432,11 +470,150 @@ describe('WalletService', () => {
     });
   });
 
-  it('stores opening balance and default wallet on the user', async () => {
-    await service.setOpeningBalance('u1', Wallet.CASH, Money.fromMajor(200000));
-    expect(users.update).toHaveBeenCalledWith('u1', { openingCash: Money.fromMajor(200000) });
-    await service.setOpeningBalance('u1', Wallet.DIGITAL, Money.fromMajor(1));
-    expect(users.update).toHaveBeenLastCalledWith('u1', { openingDigital: Money.fromMajor(1) });
+  describe('opening balance as income', () => {
+    const NOW = new Date('2026-09-29T03:00:00Z');
+    const entry = (wallet: Wallet | null, id = 'old') =>
+      ({ id, userId: 'u1', wallet, note: 'SALDO_AWAL' }) as never;
+
+    it('records it as an income entry in the Saldo Awal category', async () => {
+      await service.setOpeningBalance('u1', Wallet.CASH, Money.fromMajor(200000), NOW, 'm1');
+
+      expect(transactions.create).toHaveBeenCalledWith({
+        userId: 'u1',
+        categoryId: 'system-income-saldo-awal',
+        type: 'INCOME',
+        amount: Money.fromMajor(200000),
+        description: 'Saldo awal',
+        note: 'SALDO_AWAL',
+        occurredAt: NOW,
+        messageId: 'm1',
+        wallet: Wallet.CASH,
+      });
+    });
+
+    it('still works when the category has not been seeded yet', async () => {
+      categories.findByNameAndType.mockResolvedValue(null);
+      await service.setOpeningBalance('u1', Wallet.DIGITAL, Money.fromMajor(1), NOW, null);
+      expect(transactions.create).toHaveBeenCalledWith(
+        expect.objectContaining({ categoryId: null, wallet: Wallet.DIGITAL }),
+      );
+    });
+
+    it("replaces only that wallet's previous entry", async () => {
+      transactions.findByNote.mockResolvedValue([
+        entry(Wallet.CASH, 'cash-old'),
+        entry(Wallet.DIGITAL, 'digital-old'),
+        entry(null, 'legacy-blank-is-cash'),
+      ]);
+      await service.setOpeningBalance('u1', Wallet.CASH, Money.fromMajor(5), NOW, 'm2');
+
+      expect(transactions.softDelete.mock.calls.map((c) => c[0])).toEqual([
+        'cash-old',
+        'legacy-blank-is-cash',
+      ]);
+      expect(transactions.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('removes the entry without creating a new one when set to zero', async () => {
+      transactions.findByNote.mockResolvedValue([entry(Wallet.CASH)]);
+      const result = await service.setOpeningBalance('u1', Wallet.CASH, Money.zero(), NOW, 'm3');
+
+      expect(result).toBeNull();
+      expect(transactions.softDelete).toHaveBeenCalledWith('old');
+      expect(transactions.create).not.toHaveBeenCalled();
+    });
+
+    it('drops a leftover value stored on the user row so nothing is counted twice', async () => {
+      users.findById.mockResolvedValue(user({ openingCash: Money.fromMajor(34000) }));
+      await service.setOpeningBalance('u1', Wallet.CASH, Money.fromMajor(50000), NOW, 'm4');
+      expect(users.update).toHaveBeenCalledWith('u1', { openingCash: null });
+
+      users.update.mockClear();
+      await service.setOpeningBalance('u1', Wallet.DIGITAL, Money.fromMajor(1), NOW, 'm5');
+      expect(users.update).not.toHaveBeenCalled(); // digital had nothing stored
+    });
+  });
+
+  describe('converting legacy opening balances', () => {
+    const NOW = new Date('2026-09-29T03:00:00Z');
+
+    it('does nothing for a user without a stored opening balance', async () => {
+      const u = user();
+      expect(await service.migrateLegacyOpening(u, NOW)).toBe(u);
+      expect(transactions.create).not.toHaveBeenCalled();
+      expect(users.update).not.toHaveBeenCalled();
+    });
+
+    it('turns each stored balance into an income entry dated now, then clears the row', async () => {
+      const cleared = user();
+      users.update.mockResolvedValue(cleared);
+      const u = user({
+        openingCash: Money.fromMajor(34000),
+        openingDigital: Money.fromMajor(522000),
+      });
+
+      expect(await service.migrateLegacyOpening(u, NOW)).toBe(cleared);
+
+      expect(transactions.create).toHaveBeenCalledTimes(2);
+      expect(transactions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: Money.fromMajor(34000),
+          wallet: Wallet.CASH,
+          note: 'SALDO_AWAL',
+          occurredAt: NOW,
+          messageId: 'opening-migration:u1:CASH',
+        }),
+      );
+      expect(transactions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: Money.fromMajor(522000),
+          wallet: Wallet.DIGITAL,
+          messageId: 'opening-migration:u1:DIGITAL',
+        }),
+      );
+      expect(users.update).toHaveBeenCalledWith('u1', { openingCash: null, openingDigital: null });
+    });
+
+    it('does not create a second entry when an earlier run already did', async () => {
+      transactions.existsByMessageId.mockResolvedValue(true);
+      users.update.mockResolvedValue(user());
+
+      await service.migrateLegacyOpening(user({ openingCash: Money.fromMajor(34000) }), NOW);
+
+      expect(transactions.create).not.toHaveBeenCalled();
+      expect(users.update).toHaveBeenCalledWith('u1', { openingCash: null, openingDigital: null });
+    });
+
+    it('only clears a stored zero', async () => {
+      users.update.mockResolvedValue(user());
+      await service.migrateLegacyOpening(user({ openingDigital: Money.zero() }), NOW);
+      expect(transactions.create).not.toHaveBeenCalled();
+      expect(users.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the balance unchanged: the entry replaces the stored value', async () => {
+      // Before: 34.000 stored on the row. After: the same 34.000 as an income entry.
+      transactions.sumByWallet.mockResolvedValue({
+        [Wallet.CASH]: { income: Money.fromMajor(34000), expense: Money.zero() },
+        [Wallet.DIGITAL]: zero(),
+      });
+      users.findById.mockResolvedValue(user({ walletMode: WalletMode.BOTH }));
+      const after = (await service.current('u1')).lines[0].balance.toNumber();
+
+      transactions.sumByWallet.mockResolvedValue({
+        [Wallet.CASH]: zero(),
+        [Wallet.DIGITAL]: zero(),
+      });
+      users.findById.mockResolvedValue(
+        user({ walletMode: WalletMode.BOTH, openingCash: Money.fromMajor(34000) }),
+      );
+      const before = (await service.current('u1')).lines[0].balance.toNumber();
+
+      expect(after).toBe(before);
+    });
+  });
+
+  it('stores the default wallet on the user', async () => {
     await service.setDefault('u1', Wallet.DIGITAL);
     expect(users.update).toHaveBeenLastCalledWith('u1', { defaultWallet: Wallet.DIGITAL });
   });

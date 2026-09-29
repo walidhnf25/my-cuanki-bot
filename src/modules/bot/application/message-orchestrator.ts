@@ -162,7 +162,15 @@ export class MessageOrchestrator {
         return null; // something else entirely: drop the questions
       }
 
-      if (amount !== null) await this.wallets.setOpeningBalance(user.id, current, amount);
+      if (amount !== null) {
+        await this.wallets.setOpeningBalance(
+          user.id,
+          current,
+          amount,
+          message.timestamp,
+          message.messageId,
+        );
+      }
       const ack = this.replies.openingBalanceAck(current, amount);
       if (rest.length > 0) {
         await this.conversation.awaitOpeningBalance(user.id, rest, message.timestamp);
@@ -400,7 +408,13 @@ export class MessageOrchestrator {
         if (only !== null && only !== intent.wallet) {
           return { text: this.replies.inactiveWallet(intent.wallet) };
         }
-        await this.wallets.setOpeningBalance(user.id, intent.wallet, intent.amount);
+        await this.wallets.setOpeningBalance(
+          user.id,
+          intent.wallet,
+          intent.amount,
+          now,
+          message.messageId,
+        );
         return { text: this.replies.openingBalanceSet(intent.wallet, intent.amount) };
       }
 

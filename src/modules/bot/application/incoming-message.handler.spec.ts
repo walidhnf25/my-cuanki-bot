@@ -8,6 +8,8 @@ import {
 } from '../domain/messaging.gateway.port';
 import { IncomingMessageHandler } from './incoming-message.handler';
 import { MessageDedupeService } from './message-dedupe.service';
+import { Money } from 'src/shared/utils/money';
+import { WalletService } from 'src/modules/wallet/application/wallet.service';
 import { MessageOrchestrator } from './message-orchestrator';
 import { ReplyBuilder } from './reply-builder';
 
@@ -24,7 +26,7 @@ class FakeGateway extends MessagingGateway {
 }
 
 class StubUserRepository extends UserRepository {
-  private readonly known = new Map<string, UserEntity>();
+  readonly known = new Map<string, UserEntity>();
   findById(): Promise<UserEntity | null> {
     return Promise.resolve(null);
   }
@@ -85,6 +87,7 @@ describe('IncomingMessageHandler', () => {
   let users: StubUserRepository;
   let audit: StubAuditRepository;
   let orchestrator: { process: jest.Mock; walletSetupPrompt: jest.Mock };
+  let wallets: { migrateLegacyOpening: jest.Mock };
   let handler: IncomingMessageHandler;
 
   beforeEach(() => {
@@ -95,6 +98,7 @@ describe('IncomingMessageHandler', () => {
       process: jest.fn().mockResolvedValue({ text: 'ROUTED_REPLY' }),
       walletSetupPrompt: jest.fn().mockResolvedValue(null),
     };
+    wallets = { migrateLegacyOpening: jest.fn() };
     handler = new IncomingMessageHandler(
       gateway,
       users,
@@ -102,6 +106,7 @@ describe('IncomingMessageHandler', () => {
       new MessageDedupeService(),
       new ReplyBuilder(),
       orchestrator as unknown as MessageOrchestrator,
+      wallets as unknown as WalletService,
     );
   });
 
@@ -128,6 +133,59 @@ describe('IncomingMessageHandler', () => {
     orchestrator.walletSetupPrompt.mockResolvedValue(null);
     await handler.handle(msg({ messageId: 'm1' }));
     expect(gateway.sent).toHaveLength(2);
+  });
+
+  describe('converting a legacy opening balance', () => {
+    const legacyUser = (over: Partial<UserEntity> = {}): UserEntity => ({
+      id: 'id-628123',
+      telegramId: '628123',
+      chatId: '628123',
+      displayName: 'Budi',
+      currency: 'IDR',
+      timezone: 'Asia/Jakarta',
+      isOnboarded: true,
+      walletMode: null,
+      defaultWallet: null,
+      openingCash: Money.fromMajor(34000),
+      openingDigital: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...over,
+    });
+
+    it('converts it before routing, and routes with the converted user', async () => {
+      const stored = legacyUser();
+      const converted = legacyUser({ openingCash: null });
+      users.known.set('628123', stored);
+      wallets.migrateLegacyOpening.mockResolvedValue(converted);
+
+      await handler.handle(msg({ messageId: 'm1' }));
+
+      expect(wallets.migrateLegacyOpening).toHaveBeenCalledWith(
+        stored,
+        new Date('2026-07-15T03:00:00.000Z'),
+      );
+      expect(orchestrator.process.mock.calls[0][0]).toBe(converted);
+    });
+
+    it('does nothing for users without a legacy opening balance', async () => {
+      users.known.set('628123', legacyUser({ openingCash: null, openingDigital: null }));
+      await handler.handle(msg({ messageId: 'm1' }));
+      expect(wallets.migrateLegacyOpening).not.toHaveBeenCalled();
+    });
+
+    it('still answers when the conversion fails, and retries on the next message', async () => {
+      const stored = legacyUser();
+      users.known.set('628123', stored);
+      wallets.migrateLegacyOpening.mockRejectedValue(new Error('sheets down'));
+
+      await handler.handle(msg({ messageId: 'm1' }));
+      expect(orchestrator.process.mock.calls[0][0]).toBe(stored);
+      expect(gateway.sent.some((s) => s.text === 'ROUTED_REPLY')).toBe(true);
+
+      await handler.handle(msg({ messageId: 'm2' }));
+      expect(wallets.migrateLegacyOpening).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('never asks returning users', async () => {
