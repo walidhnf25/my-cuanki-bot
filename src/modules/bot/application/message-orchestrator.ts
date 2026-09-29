@@ -23,10 +23,10 @@ import { ReplyBuilder } from './reply-builder';
 const YES_WORDS = ['ya', 'iya', 'yoi', 'yes', 'yup', 'ok', 'oke', 'sip', 'benar', 'y'];
 const NO_WORDS = ['tidak', 'ga', 'gak', 'nggak', 'engga', 'enggak', 'no', 'batal', 'jangan', 'n'];
 
-/** A reply to send back: text and/or a document (CSV export). Empty = send nothing. */
+/** A reply to send back: text and/or a document (Excel export). Empty = send nothing. */
 export interface OutgoingReply {
   text?: string;
-  document?: { content: Buffer; filename: string };
+  document?: { content: Buffer; filename: string; mimeType: string };
 }
 
 /**
@@ -194,7 +194,10 @@ export class MessageOrchestrator {
         );
         return {
           text: this.replies.exportCaption(csv.rowCount),
-          document: csv.rowCount > 0 ? { content: csv.content, filename: csv.filename } : undefined,
+          document:
+            csv.rowCount > 0
+              ? { content: csv.content, filename: csv.filename, mimeType: csv.mimeType }
+              : undefined,
         };
       }
 

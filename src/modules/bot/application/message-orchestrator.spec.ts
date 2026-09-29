@@ -215,14 +215,15 @@ describe('MessageOrchestrator', () => {
       expect(reply.text).toContain('Budget diatur');
     });
 
-    it('exports a CSV document', async () => {
+    it('exports an Excel document', async () => {
       csvExport.export.mockResolvedValue({
-        content: Buffer.from('a,b'),
-        filename: 'transaksi-bulan-ini.csv',
+        content: Buffer.from('x'),
+        filename: 'transaksi-bulan-ini.xlsx',
+        mimeType: 'application/vnd.ms-excel',
         rowCount: 3,
       });
       const reply = await orchestrator.process(user, msg('export bulan ini'));
-      expect(reply.document?.filename).toBe('transaksi-bulan-ini.csv');
+      expect(reply.document?.filename).toBe('transaksi-bulan-ini.xlsx');
       expect(reply.text).toContain('3 transaksi');
     });
   });

@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import { CategoryRepository } from 'src/modules/category/domain/category.repository';
 import { SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
@@ -25,10 +26,16 @@ function tx(over: Partial<TransactionEntity> = {}): TransactionEntity {
   };
 }
 
-describe('CsvExportService', () => {
+describe('CsvExportService (xlsx)', () => {
   let transactions: jest.Mocked<TransactionRepository>;
   let categories: jest.Mocked<CategoryRepository>;
   let service: CsvExportService;
+
+  async function load(buf: Buffer): Promise<ExcelJS.Workbook> {
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as never);
+    return wb;
+  }
 
   beforeEach(() => {
     transactions = {
@@ -38,30 +45,36 @@ describe('CsvExportService', () => {
     service = new CsvExportService(transactions, categories);
   });
 
-  it('builds a CSV with header and rows', async () => {
+  it('builds a transaction sheet sorted by date with numeric amounts', async () => {
     transactions.findManyInRange.mockResolvedValue([
-      tx({ description: 'kopi susu', amount: Money.fromMajor(25000) }),
+      tx({ description: 'kopi susu', occurredAt: new Date('2026-07-16T05:00:00.000Z') }),
+      tx({ description: 'nasi, ayam', occurredAt: new Date('2026-07-15T05:00:00.000Z') }),
     ]);
     categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
 
-    const csv = await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
-    const text = csv.content.toString('utf-8');
+    const out = await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
+    expect(out.rowCount).toBe(2);
+    expect(out.filename).toBe('transaksi-bulan-ini.xlsx');
+    expect(out.mimeType).toContain('spreadsheetml');
 
-    expect(csv.rowCount).toBe(1);
-    expect(csv.filename).toBe('transaksi-bulan-ini.csv');
-    expect(text).toContain('Tanggal,Tipe,Jumlah,Deskripsi,Kategori');
-    expect(text).toContain('15/07/2026,Pengeluaran,25000,kopi susu,Makanan');
+    const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
+    expect(sheet.getRow(4).values).toEqual([
+      undefined,
+      'Tanggal',
+      'Tipe',
+      'Jumlah',
+      'Deskripsi',
+      'Kategori',
+    ]);
+    expect(sheet.getRow(5).getCell(1).value).toBe('15/07/2026');
+    expect(sheet.getRow(5).getCell(3).value).toBe(25000);
+    expect(sheet.getRow(5).getCell(4).value).toBe('nasi, ayam');
+    expect(sheet.getRow(6).getCell(4).value).toBe('kopi susu');
+    expect(sheet.getRow(6).getCell(5).value).toBe('Makanan');
+    expect(categories.findById).toHaveBeenCalledTimes(1);
   });
 
-  it('quotes fields containing a comma', async () => {
-    transactions.findManyInRange.mockResolvedValue([tx({ description: 'nasi, ayam' })]);
-    categories.findById.mockResolvedValue(null);
-
-    const csv = await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
-    expect(csv.content.toString('utf-8')).toContain('"nasi, ayam"');
-  });
-
-  it('appends a summary with totals and per-category breakdown', async () => {
+  it('adds a summary sheet with totals and category breakdown', async () => {
     transactions.findManyInRange.mockResolvedValue([
       tx({
         description: 'gaji',
@@ -74,31 +87,15 @@ describe('CsvExportService', () => {
     ]);
     categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
 
-    const csv = await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
-    const text = csv.content.toString('utf-8');
+    const out = await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
+    const sheet = (await load(out.content)).getWorksheet('Ringkasan')!;
 
-    expect(text).toContain('RINGKASAN');
-    expect(text).toContain('Jumlah Transaksi,3');
-    expect(text).toContain('Total Pemasukan,100000');
-    expect(text).toContain('Total Pengeluaran,100000');
-    expect(text).toContain('Selisih (Pemasukan - Pengeluaran),0');
-    expect(text).toContain('Makanan,100000,100%');
-    expect(text).toContain('Tanpa Kategori,100000,100%');
-    expect(categories.findById).toHaveBeenCalledTimes(1);
-  });
-
-  it('neutralises formula injection and omits summary when empty', async () => {
-    transactions.findManyInRange.mockResolvedValue([tx({ description: '=HYPERLINK("x")' })]);
-    categories.findById.mockResolvedValue(null);
-    let text = (
-      await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta')
-    ).content.toString('utf-8');
-    expect(text).toContain(`"'=HYPERLINK(""x"")"`);
-
-    transactions.findManyInRange.mockResolvedValue([]);
-    text = (
-      await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta')
-    ).content.toString('utf-8');
-    expect(text).not.toContain('RINGKASAN');
+    expect(sheet.getCell('B4').value).toBe(3);
+    expect(sheet.getCell('B5').value).toBe(100000);
+    expect(sheet.getCell('B6').value).toBe(100000);
+    expect(sheet.getCell('B7').value).toBe(0);
+    expect(sheet.getCell('A9').value).toBe('Pengeluaran per Kategori');
+    expect(sheet.getCell('A10').value).toBe('Makanan');
+    expect(sheet.getCell('C10').value).toBe(1);
   });
 });

@@ -72,7 +72,7 @@ export class ReplyBuilder {
         return '🗑️ Hapus transaksi akan aktif pada tahap berikutnya.';
 
       case IntentType.Export:
-        return '📁 Export CSV akan aktif pada tahap berikutnya.';
+        return '📁 Export Excel akan aktif pada tahap berikutnya.';
 
       case IntentType.Unknown:
       default:
@@ -181,7 +181,7 @@ export class ReplyBuilder {
 
   exportCaption(rowCount: number): string {
     return rowCount > 0
-      ? `📁 Laporan CSV (${rowCount} transaksi).`
+      ? `📁 Laporan Excel (${rowCount} transaksi).`
       : 'Belum ada transaksi untuk diexport pada periode ini.';
   }
 

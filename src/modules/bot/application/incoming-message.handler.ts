@@ -60,7 +60,7 @@ export class IncomingMessageHandler implements OnModuleInit {
         message.chatId,
         reply.document.content,
         reply.document.filename,
-        'text/csv',
+        reply.document.mimeType,
       );
       replied = true;
     }
