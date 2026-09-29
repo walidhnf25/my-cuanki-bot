@@ -74,7 +74,10 @@ export class RuleBasedParser extends MessageParser {
         type: IntentType.SetOpeningBalance,
         raw,
         wallet: this.detectWallet(tokens),
-        amount: extractAmount(raw)?.amount ?? null,
+        // Zero is a valid opening balance (it clears a previously set one).
+        amount:
+          extractAmount(raw)?.amount ??
+          (tokens.has('nol') || /(^|\s)(rp\.?\s*)?0(\s|$)/.test(normalized) ? Money.zero() : null),
       };
     }
     if (has(DEFAULT_WORDS) && this.detectWallet(tokens) !== null) {

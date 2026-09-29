@@ -189,6 +189,22 @@ describe('RuleBasedParser', () => {
       expect(intent.amount?.toNumber()).toBe(200000);
     });
 
+    it.each(['saldo awal digital 0', 'saldo awal digital nol', 'saldo awal digital rp0'])(
+      'accepts zero as an opening balance: "%s"',
+      async (text) => {
+        const intent = await parse(text);
+        if (intent.type !== IntentType.SetOpeningBalance) throw new Error('unexpected intent');
+        expect(intent.wallet).toBe(Wallet.DIGITAL);
+        expect(intent.amount?.toNumber()).toBe(0);
+      },
+    );
+
+    it('still asks for an amount when none is given', async () => {
+      const intent = await parse('saldo awal digital');
+      if (intent.type !== IntentType.SetOpeningBalance) throw new Error('unexpected intent');
+      expect(intent.amount).toBeNull();
+    });
+
     it('parses opening balance with a missing wallet', async () => {
       const intent = await parse('saldo awal 200rb');
       if (intent.type !== IntentType.SetOpeningBalance) throw new Error('unexpected intent');
