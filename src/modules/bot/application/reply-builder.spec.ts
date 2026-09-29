@@ -96,7 +96,11 @@ describe('ReplyBuilder', () => {
 
     expect(replies.summary(summary)).not.toContain('Per dompet');
     expect(replies.summary(summary, { ...overview, enabled: false })).not.toContain('Per dompet');
-    expect(replies.summary(summary, overview)).toContain('Per dompet');
+    const text = replies.summary(summary, overview);
+    expect(text).toContain('Per dompet');
+    expect(text).toContain('Cash: saldo *Rp1.000*');
+    expect(text).toContain('⬆️ Masuk Rp0');
+    expect(text).toContain('⬇️ Keluar Rp0');
   });
 
   it('shows the help menu', () => {

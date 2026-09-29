@@ -171,11 +171,14 @@ export class ReplyBuilder {
 
     if (wallets?.enabled) {
       lines.push('', '👛 *Per dompet:*');
-      for (const l of wallets.lines) {
+      wallets.lines.forEach((l, i) => {
+        if (i > 0) lines.push('');
         lines.push(
-          `${WALLET_LABEL[l.wallet]}: masuk ${l.income.format()} · keluar ${l.expense.format()} · saldo ${l.balance.format()}`,
+          `${WALLET_LABEL[l.wallet]}: saldo *${l.balance.format()}*`,
+          `⬆️ Masuk ${l.income.format()}`,
+          `⬇️ Keluar ${l.expense.format()}`,
         );
-      }
+      });
     }
 
     return lines.join('\n');
