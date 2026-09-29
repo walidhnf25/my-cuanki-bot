@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
+import { CategoryRepository } from 'src/modules/category/domain/category.repository';
 import { customRangeInfo, resolvePeriod } from 'src/modules/report/application/period';
+import { CategoryBreakdown } from 'src/modules/report/domain/summary.types';
 import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
-import { Wallet } from 'src/shared/domain/enums';
+import { TransactionType, Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 
 export interface WalletLine {
@@ -14,6 +16,8 @@ export interface WalletLine {
   expense: Money;
   /** Current balance: opening balance + all-time income - all-time expense. */
   balance: Money;
+  /** Expense per category over the reported window, largest first (empty for current()). */
+  categories: CategoryBreakdown[];
 }
 
 export interface WalletOverview {
@@ -35,6 +39,7 @@ export class WalletService {
   constructor(
     private readonly transactions: TransactionRepository,
     private readonly users: UserRepository,
+    private readonly categories: CategoryRepository,
   ) {}
 
   /** Per-wallet income/expense for a report period, plus current balances. */
@@ -48,7 +53,39 @@ export class WalletService {
     const { range } = customRange
       ? customRangeInfo(customRange, tz)
       : resolvePeriod(period, now, tz);
-    return this.build(userId, await this.transactions.sumByWallet(userId, range));
+    const overview = await this.build(userId, await this.transactions.sumByWallet(userId, range));
+    if (!overview.enabled) return overview;
+
+    const lines = await Promise.all(
+      overview.lines.map(async (line) => ({
+        ...line,
+        categories: await this.expenseCategories(userId, range, line.wallet),
+      })),
+    );
+    return { ...overview, lines };
+  }
+
+  private async expenseCategories(
+    userId: string,
+    range: { start: Date; end: Date },
+    wallet: Wallet,
+  ): Promise<CategoryBreakdown[]> {
+    const totals = await this.transactions.sumByCategory(
+      userId,
+      range,
+      TransactionType.EXPENSE,
+      wallet,
+    );
+    return Promise.all(
+      totals.map(async (t) => {
+        const category = t.categoryId ? await this.categories.findById(t.categoryId) : null;
+        return {
+          name: category?.name ?? 'Tanpa kategori',
+          icon: category?.icon ?? '📦',
+          total: t.total,
+        };
+      }),
+    );
   }
 
   /** Current balances (all time). */
@@ -88,6 +125,7 @@ export class WalletService {
       wallet,
       income: shown[wallet].income,
       expense: shown[wallet].expense,
+      categories: [],
       balance: (user ? (opening(user, wallet) ?? Money.zero()) : Money.zero())
         .add(allTime[wallet].income)
         .subtract(allTime[wallet].expense),

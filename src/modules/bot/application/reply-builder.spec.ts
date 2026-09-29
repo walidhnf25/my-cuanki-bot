@@ -87,6 +87,10 @@ describe('ReplyBuilder', () => {
       income: Money.zero(),
       expense: Money.zero(),
       balance: Money.fromMajor(1000),
+      categories:
+        wallet === Wallet.CASH
+          ? [{ name: 'Makanan', icon: '🍜', total: Money.fromMajor(75000) }]
+          : [{ name: 'Transportasi', icon: '🚗', total: Money.fromMajor(20000) }],
     });
     const overview = {
       enabled: true,
@@ -101,6 +105,13 @@ describe('ReplyBuilder', () => {
     expect(text).toContain('Cash: saldo *Rp1.000*');
     expect(text).toContain('⬆️ Masuk Rp0');
     expect(text).toContain('⬇️ Keluar Rp0');
+
+    // Categories are listed under their own wallet, in wallet order.
+    expect(text.indexOf('Cash')).toBeLessThan(text.indexOf('Makanan: Rp75.000'));
+    expect(text.indexOf('Makanan: Rp75.000')).toBeLessThan(text.indexOf('Digital'));
+    expect(text.indexOf('Digital')).toBeLessThan(text.indexOf('Transportasi: Rp20.000'));
+    // The combined list is replaced, not repeated.
+    expect(text.match(/Pengeluaran per kategori/g)).toHaveLength(2);
   });
 
   it('shows the help menu', () => {

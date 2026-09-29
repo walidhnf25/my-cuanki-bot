@@ -174,25 +174,30 @@ export class ReplyBuilder {
       `💵 Saldo: ${result.balance.format()}`,
     ];
 
-    if (result.categories.length > 0) {
+    if (wallets?.enabled) {
+      // Wallet users get the category breakdown split per wallet instead of one list.
+      lines.push('', '👛 *Per dompet:*');
+      for (const l of wallets.lines) {
+        lines.push(
+          '',
+          `${WALLET_LABEL[l.wallet]}: saldo *${l.balance.format()}*`,
+          `⬆️ Masuk ${l.income.format()}`,
+          `⬇️ Keluar ${l.expense.format()}`,
+        );
+        if (l.categories.length > 0) {
+          lines.push('📂 Pengeluaran per kategori:');
+          for (const c of l.categories) {
+            lines.push(`${c.icon} ${c.name}: ${c.total.format()}`);
+          }
+        }
+      }
+    } else if (result.categories.length > 0) {
       lines.push('', '📂 *Pengeluaran per kategori:*');
       for (const c of result.categories) {
         lines.push(`${c.icon} ${c.name}: ${c.total.format()}`);
       }
     } else {
       lines.push('', '_Belum ada pengeluaran pada periode ini._');
-    }
-
-    if (wallets?.enabled) {
-      lines.push('', '👛 *Per dompet:*');
-      wallets.lines.forEach((l, i) => {
-        if (i > 0) lines.push('');
-        lines.push(
-          `${WALLET_LABEL[l.wallet]}: saldo *${l.balance.format()}*`,
-          `⬆️ Masuk ${l.income.format()}`,
-          `⬇️ Keluar ${l.expense.format()}`,
-        );
-      });
     }
 
     return lines.join('\n');

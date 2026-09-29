@@ -185,10 +185,12 @@ export class SheetsTransactionRepository extends TransactionRepository {
     userId: string,
     range: DateRange,
     type: TransactionType,
+    wallet?: Wallet,
   ): Promise<CategoryTotal[]> {
     const totals = new Map<string | null, Money>();
     for (const tx of await this.forUserInRange(userId, range)) {
       if (tx.type !== type) continue;
+      if (wallet && (tx.wallet ?? DEFAULT_WALLET) !== wallet) continue;
       totals.set(tx.categoryId, (totals.get(tx.categoryId) ?? Money.zero()).add(tx.amount));
     }
     return [...totals.entries()]

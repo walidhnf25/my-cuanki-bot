@@ -1,4 +1,5 @@
 import { SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
+import { CategoryRepository } from 'src/modules/category/domain/category.repository';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
@@ -29,6 +30,7 @@ function user(over: Partial<UserEntity> = {}): UserEntity {
 describe('WalletService', () => {
   let transactions: jest.Mocked<TransactionRepository>;
   let users: jest.Mocked<UserRepository>;
+  let categories: jest.Mocked<CategoryRepository>;
   let service: WalletService;
 
   beforeEach(() => {
@@ -38,12 +40,16 @@ describe('WalletService', () => {
         [Wallet.DIGITAL]: { income: Money.zero(), expense: Money.fromMajor(50000) },
       }),
       hasExplicitWallet: jest.fn().mockResolvedValue(false),
+      sumByCategory: jest.fn().mockResolvedValue([]),
     } as unknown as jest.Mocked<TransactionRepository>;
+    categories = {
+      findById: jest.fn().mockResolvedValue({ name: 'Makanan', icon: '🍜' }),
+    } as unknown as jest.Mocked<CategoryRepository>;
     users = {
       findById: jest.fn().mockResolvedValue(user()),
       update: jest.fn(),
     } as unknown as jest.Mocked<UserRepository>;
-    service = new WalletService(transactions, users);
+    service = new WalletService(transactions, users, categories);
   });
 
   it('computes balances per wallet including the opening balance', async () => {
@@ -96,6 +102,38 @@ describe('WalletService', () => {
     expect(transactions.sumByWallet.mock.calls[1][1]).toBeUndefined();
     expect(overview.lines[0].income.toNumber()).toBe(1000);
     expect(overview.lines[0].balance.toNumber()).toBe(400000);
+  });
+
+  it('adds expense categories per wallet to the period overview', async () => {
+    users.findById.mockResolvedValue(user({ defaultWallet: Wallet.CASH }));
+    transactions.sumByCategory.mockImplementation((_u, _r, _t, wallet) =>
+      Promise.resolve(
+        wallet === Wallet.CASH ? [{ categoryId: 'cat-food', total: Money.fromMajor(75000) }] : [],
+      ),
+    );
+
+    const overview = await service.overview(
+      'u1',
+      SummaryPeriod.Month,
+      new Date('2026-07-15T03:00:00Z'),
+      'Asia/Jakarta',
+    );
+
+    expect(transactions.sumByCategory).toHaveBeenCalledWith(
+      'u1',
+      expect.anything(),
+      'EXPENSE',
+      Wallet.DIGITAL,
+    );
+    expect(overview.lines[0].categories).toEqual([
+      { name: 'Makanan', icon: '🍜', total: Money.fromMajor(75000) },
+    ]);
+    expect(overview.lines[1].categories).toEqual([]);
+  });
+
+  it('skips category lookups for users who have not used wallets', async () => {
+    await service.overview('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
+    expect(transactions.sumByCategory).not.toHaveBeenCalled();
   });
 
   it('clears wallet settings on reset', async () => {

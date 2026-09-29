@@ -112,6 +112,48 @@ function addBreakdown(
   return r + 1;
 }
 
+type WalletSplit = Record<Wallet, Money>;
+
+/** Expense per category with a Cash / Digital / Total column. Returns the next free row. */
+function addWalletBreakdown(
+  sheet: ExcelJS.Worksheet,
+  startRow: number,
+  title: string,
+  totals: Map<string, WalletSplit>,
+  accent: string,
+): number {
+  if (totals.size === 0) return startRow;
+  sheet.mergeCells(`A${startRow}:B${startRow}`);
+  const header = sheet.getRow(startRow);
+  header.getCell(1).value = title;
+  header.getCell(3).value = 'Cash';
+  header.getCell(4).value = 'Digital';
+  header.getCell(5).value = 'Total';
+  styleHeader(header, accent, 5);
+  header.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+  const sum = (s: WalletSplit): Money => s[Wallet.CASH].add(s[Wallet.DIGITAL]);
+  const entries = [...totals.entries()].sort((a, b) => sum(b[1]).compareTo(sum(a[1])));
+  let r = startRow + 1;
+  entries.forEach(([name, split], i) => {
+    sheet.mergeCells(`A${r}:B${r}`);
+    const row = sheet.getRow(r);
+    row.getCell(1).value = name;
+    row.getCell(1).alignment = { indent: 1 };
+    row.getCell(3).value = toRupiah(split[Wallet.CASH]);
+    row.getCell(4).value = toRupiah(split[Wallet.DIGITAL]);
+    row.getCell(5).value = toRupiah(sum(split));
+    row.getCell(5).font = { bold: true };
+    for (let c = 3; c <= 5; c++) row.getCell(c).numFmt = RUPIAH_FORMAT;
+    for (let c = 1; c <= 5; c++) {
+      row.getCell(c).border = BORDER;
+      if (i % 2 === 1) row.getCell(c).fill = fill(COLOR.stripe);
+    }
+    r++;
+  });
+  return r + 1;
+}
+
 /** Per-wallet table: money in/out over the period and the current balance. */
 function addWalletTable(
   sheet: ExcelJS.Worksheet,
@@ -238,6 +280,7 @@ export class CsvExportService {
     let expense = Money.zero();
     const incomeByCat = new Map<string, Money>();
     const expenseByCat = new Map<string, Money>();
+    const expenseByCatWallet = new Map<string, WalletSplit>();
 
     rows.forEach((t, i) => {
       const category = (t.categoryId && categoryNames.get(t.categoryId)) || '';
@@ -267,7 +310,16 @@ export class CsvExportService {
       const key = category || UNCATEGORIZED;
       bucket.set(key, (bucket.get(key) ?? Money.zero()).add(t.amount));
       if (isIncome) income = income.add(t.amount);
-      else expense = expense.add(t.amount);
+      else {
+        expense = expense.add(t.amount);
+        const split = expenseByCatWallet.get(key) ?? {
+          [Wallet.CASH]: Money.zero(),
+          [Wallet.DIGITAL]: Money.zero(),
+        };
+        const w = t.wallet ?? DEFAULT_WALLET;
+        split[w] = split[w].add(t.amount);
+        expenseByCatWallet.set(key, split);
+      }
     });
 
     if (rows.length === 0) {
@@ -315,14 +367,15 @@ export class CsvExportService {
     if (wallets && showWallets) {
       next = addWalletTable(sheet, next, wallets);
     }
-    next = addBreakdown(
-      sheet,
-      next,
-      'Pengeluaran per Kategori',
-      expenseByCat,
-      expense,
-      COLOR.expense,
-    );
+    next = showWallets
+      ? addWalletBreakdown(
+          sheet,
+          next,
+          'Pengeluaran per Kategori',
+          expenseByCatWallet,
+          COLOR.expense,
+        )
+      : addBreakdown(sheet, next, 'Pengeluaran per Kategori', expenseByCat, expense, COLOR.expense);
     addBreakdown(sheet, next, 'Pemasukan per Kategori', incomeByCat, income, COLOR.income);
 
     return this.finish(wb, slug, rows.length);

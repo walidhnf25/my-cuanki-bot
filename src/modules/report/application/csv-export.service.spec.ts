@@ -110,12 +110,14 @@ describe('CsvExportService (xlsx)', () => {
           income: Money.fromMajor(100000),
           expense: Money.fromMajor(25000),
           balance: Money.fromMajor(75000),
+          categories: [],
         },
         {
           wallet: Wallet.DIGITAL,
           income: Money.zero(),
           expense: Money.fromMajor(10000),
           balance: Money.fromMajor(190000),
+          categories: [],
         },
       ],
       total: Money.fromMajor(265000),
@@ -150,6 +152,16 @@ describe('CsvExportService (xlsx)', () => {
       expect(sheet.getCell('E17').value).toBe(190000);
       expect(sheet.getCell('A18').value).toBe('Total Saldo');
       expect(sheet.getCell('E18').value).toBe(265000);
+
+      // Expense categories split per wallet, right after the wallet table.
+      expect(sheet.getCell('A20').value).toBe('Pengeluaran per Kategori');
+      expect(sheet.getCell('C20').value).toBe('Cash');
+      expect(sheet.getCell('D20').value).toBe('Digital');
+      expect(sheet.getCell('E20').value).toBe('Total');
+      expect(sheet.getCell('A21').value).toBe('Makanan');
+      expect(sheet.getCell('C21').value).toBe(25000);
+      expect(sheet.getCell('D21').value).toBe(25000);
+      expect(sheet.getCell('E21').value).toBe(50000);
     });
 
     it('omits wallet detail when wallets are not enabled', async () => {

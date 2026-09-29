@@ -51,5 +51,6 @@ export abstract class TransactionRepository {
     userId: string,
     range: DateRange,
     type: TransactionType,
+    wallet?: Wallet,
   ): Promise<CategoryTotal[]>;
 }

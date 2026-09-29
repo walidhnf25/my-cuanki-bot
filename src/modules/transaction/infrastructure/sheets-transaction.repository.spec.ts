@@ -107,6 +107,25 @@ describe('SheetsTransactionRepository', () => {
     expect(await repo.hasExplicitWallet('nobody')).toBe(false);
   });
 
+  it('filters category sums by wallet, counting blank as cash', async () => {
+    await create({ amount: Money.fromMajor(10000) });
+    await create({ amount: Money.fromMajor(4000), wallet: Wallet.DIGITAL });
+    await create({ amount: Money.fromMajor(6000), wallet: Wallet.DIGITAL, categoryId: 'cat-fuel' });
+
+    const cash = await repo.sumByCategory('u1', range, TransactionType.EXPENSE, Wallet.CASH);
+    expect(cash).toHaveLength(1);
+    expect(cash[0].total.toNumber()).toBe(10000);
+
+    const digital = await repo.sumByCategory('u1', range, TransactionType.EXPENSE, Wallet.DIGITAL);
+    expect(digital.map((c) => [c.categoryId, c.total.toNumber()])).toEqual([
+      ['cat-fuel', 6000],
+      ['cat-food', 4000],
+    ]);
+
+    const all = await repo.sumByCategory('u1', range, TransactionType.EXPENSE);
+    expect(all.reduce((s, c) => s + c.total.toNumber(), 0)).toBe(20000);
+  });
+
   it('reads a blank wallet cell as null and persists an explicit one', async () => {
     const legacy = await create();
     expect(legacy.wallet).toBeNull();
