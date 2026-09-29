@@ -650,6 +650,16 @@ describe('MessageOrchestrator', () => {
       });
     });
 
+    describe('help', () => {
+      it('sends the basics first and the wallet menu as a follow-up', async () => {
+        const reply = await orchestrator.process(user, msg('help'));
+        const [basics, wallets] = new ReplyBuilder().helpMessages();
+
+        expect(reply.text).toBe(basics);
+        expect(reply.followUps).toEqual([wallets]);
+      });
+    });
+
     describe('transfers', () => {
       const transferEntity = {
         id: 't1',

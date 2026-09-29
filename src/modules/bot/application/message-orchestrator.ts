@@ -45,8 +45,10 @@ const OPENING_SKIP_WORDS = [
 const NO_WORDS = ['tidak', 'ga', 'gak', 'nggak', 'engga', 'enggak', 'no', 'batal', 'jangan', 'n'];
 
 /** A reply to send back: text and/or a document (Excel export). Empty = send nothing. */
+/** `followUps` are extra text messages sent after `text`, in order. */
 export interface OutgoingReply {
   text?: string;
+  followUps?: string[];
   document?: { content: Buffer; filename: string; mimeType: string };
 }
 
@@ -429,6 +431,11 @@ export class MessageOrchestrator {
       case IntentType.ResetData: {
         await this.conversation.awaitResetConfirm(user.id, now);
         return { text: this.replies.resetConfirm() };
+      }
+
+      case IntentType.Help: {
+        const [first, ...rest] = this.replies.helpMessages();
+        return { text: first, followUps: rest };
       }
 
       default:

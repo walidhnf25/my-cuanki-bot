@@ -45,7 +45,7 @@ export class ReplyBuilder {
   compose(intent: ParsedIntent): string {
     switch (intent.type) {
       case IntentType.Help:
-        return this.help();
+        return this.helpMessages().join('\n\n');
 
       case IntentType.Greeting:
         return 'Halo! 👋 Ada yang ingin dicatat? Ketik *help* untuk contoh.';
@@ -411,7 +411,15 @@ export class ReplyBuilder {
     return icon ? `${icon} ${label}` : label;
   }
 
-  private help(): string {
+  /**
+   * The help menu as separate chat messages: the basics first, then the wallet
+   * commands, so neither is a wall of text.
+   */
+  helpMessages(): string[] {
+    return [this.helpBasics(), this.helpWallets()];
+  }
+
+  private helpBasics(): string {
     return [
       '*📖 Menu Cuanki*',
       '',
@@ -427,6 +435,28 @@ export class ReplyBuilder {
       '*📊 Ringkasan:*',
       '• _ringkasan hari ini / minggu ini / bulan ini_',
       '• _ringkasan 13/07/2026 - 14/07/2026_',
+      '',
+      '*✏️ Kelola transaksi terakhir:*',
+      '• _edit jadi 30rb_',
+      '• _hapus_ (ada konfirmasi ya / tidak)',
+      '',
+      '*🎯 Budget:*',
+      '• _budget makan 2 juta_',
+      '',
+      '*📁 Export ke Excel:*',
+      '• _export hari ini / minggu ini / bulan ini_',
+      '• _export 13/07/2026 - 14/07/2026_',
+      '',
+      '*🔄 Reset:*',
+      '• _reset_ (hapus semua data, mulai dari awal)',
+      '',
+      '👛 Menu dompet ada di pesan berikutnya.',
+    ].join('\n');
+  }
+
+  private helpWallets(): string {
+    return [
+      '*👛 Menu Dompet*',
       '',
       '*💵 Dompet Cash:*',
       '• _beli kopi 25rb cash_',
@@ -444,26 +474,15 @@ export class ReplyBuilder {
       '• _pindah 300rb dari cash ke digital_',
       '• _hapus transfer_ (batalkan transfer terakhir)',
       '',
-      '*👛 Saldo & pengaturan dompet:*',
+      '*💰 Saldo:*',
       '• _saldo_ (saldo cash dan digital)',
-      '• _atur dompet_ (pilih cash saja, digital saja, atau keduanya)',
       '• _saldo awal cash 200rb_ (dicatat sebagai pemasukan)',
+      '• isi lagi untuk mengganti, _saldo awal cash 0_ untuk menghapus',
+      '',
+      '*⚙️ Pengaturan dompet:*',
+      '• _atur dompet_ (pilih cash saja, digital saja, atau keduanya)',
       '• _default digital_ (dompet jika tidak disebut)',
       '• _edit ke digital_ (ubah dompet transaksi terakhir)',
-      '',
-      '*🎯 Budget:*',
-      '• _budget makan 2 juta_',
-      '',
-      '*✏️ Kelola transaksi terakhir:*',
-      '• _edit jadi 30rb_',
-      '• _hapus_',
-      '',
-      '*📁 Export:*',
-      '• _export hari ini / minggu ini / bulan ini_',
-      '• _export 13/07/2026 - 14/07/2026_',
-      '',
-      '*🔄 Reset:*',
-      '• _reset_ (hapus semua data, mulai dari awal)',
     ].join('\n');
   }
 }

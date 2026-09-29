@@ -257,21 +257,70 @@ describe('ReplyBuilder', () => {
     expect(replies.compose({ type: IntentType.Help, raw: 'help' })).toContain('Menu Cuanki');
   });
 
-  it('lists cash, digital, transfer and balance commands in separate sections', () => {
-    const help = replies.compose({ type: IntentType.Help, raw: 'help' });
-    const cash = help.indexOf('Dompet Cash');
-    const digital = help.indexOf('Dompet Digital');
-    const transfer = help.indexOf('Transfer antar dompet');
-    const balance = help.indexOf('Saldo & pengaturan dompet');
+  describe('help menu', () => {
+    it('is split into a basics message and a wallet message', () => {
+      const [basics, wallets, ...rest] = replies.helpMessages();
+      expect(rest).toEqual([]);
+      expect(basics).toContain('Menu Cuanki');
+      expect(wallets).toContain('Menu Dompet');
+    });
 
-    expect(cash).toBeGreaterThan(-1);
-    expect(cash).toBeLessThan(digital);
-    expect(digital).toBeLessThan(transfer);
-    expect(transfer).toBeLessThan(balance);
-    // Each section keeps its own examples.
-    expect(help.slice(cash, digital)).toContain('tunai');
-    expect(help.slice(digital, transfer)).toContain('qris');
-    expect(help.slice(transfer, balance)).toContain('tarik tunai');
+    it('keeps wallet commands out of the basics and points to the next message', () => {
+      const [basics] = replies.helpMessages();
+      for (const word of ['Dompet Cash', 'Dompet Digital', 'Transfer antar dompet', 'saldo awal']) {
+        expect(basics).not.toContain(word);
+      }
+      expect(basics).toContain('Menu dompet ada di pesan berikutnya');
+    });
+
+    it('covers every everyday command in the basics', () => {
+      const [basics] = replies.helpMessages();
+      for (const word of [
+        'beli kopi',
+        'gaji',
+        'ringkasan',
+        'edit jadi',
+        'hapus',
+        'budget',
+        'export',
+        'reset',
+      ]) {
+        expect(basics).toContain(word);
+      }
+      expect(basics).toContain('Excel');
+      expect(basics).toContain('konfirmasi');
+    });
+
+    it('lists cash, digital, transfer, balance and settings as separate sections', () => {
+      const [, wallets] = replies.helpMessages();
+      const at = (heading: string) => wallets.indexOf(heading);
+      const [cash, digital, transfer, balance, settings] = [
+        'Dompet Cash',
+        'Dompet Digital',
+        'Transfer antar dompet',
+        'Saldo:',
+        'Pengaturan dompet',
+      ].map(at);
+
+      expect([cash, digital, transfer, balance, settings].every((i) => i > -1)).toBe(true);
+      expect(cash).toBeLessThan(digital);
+      expect(digital).toBeLessThan(transfer);
+      expect(transfer).toBeLessThan(balance);
+      expect(balance).toBeLessThan(settings);
+      // Each section keeps its own examples.
+      expect(wallets.slice(cash, digital)).toContain('tunai');
+      expect(wallets.slice(digital, transfer)).toContain('qris');
+      expect(wallets.slice(transfer, balance)).toContain('tarik tunai');
+      expect(wallets.slice(balance, settings)).toContain('saldo awal cash 0');
+      expect(wallets.slice(settings)).toContain('atur dompet');
+      expect(wallets.slice(settings)).toContain('edit ke digital');
+    });
+
+    it('stays a single string for the generic fallback', () => {
+      const text = replies.compose({ type: IntentType.Help, raw: 'help' });
+      expect(text).toContain('Menu Cuanki');
+      expect(text).toContain('Menu Dompet');
+    });
   });
 
   it('falls back for unknown input', () => {
