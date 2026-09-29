@@ -19,6 +19,7 @@ export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsh
 
 const UNCATEGORIZED = 'Tanpa Kategori';
 const RUPIAH_FORMAT = '"Rp"#,##0;[Red]-"Rp"#,##0';
+const TABLE_HEADER_ROW = 4;
 
 const COLOR = {
   primary: 'FF1F4E79',
@@ -39,32 +40,31 @@ function fill(argb: string): ExcelJS.Fill {
   return { type: 'pattern', pattern: 'solid', fgColor: { argb } };
 }
 
-function styleHeader(row: ExcelJS.Row): void {
-  row.height = 22;
-  row.eachCell((cell) => {
-    cell.font = { bold: true, color: { argb: COLOR.headerText } };
-    cell.fill = fill(COLOR.primary);
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
-    cell.border = BORDER;
-  });
-}
-
-function addTitle(sheet: ExcelJS.Worksheet, title: string, subtitle: string, cols: number): void {
-  const last = String.fromCharCode(64 + cols);
-  sheet.mergeCells(`A1:${last}1`);
-  sheet.mergeCells(`A2:${last}2`);
-  const t = sheet.getCell('A1');
-  t.value = title;
-  t.font = { bold: true, size: 16, color: { argb: COLOR.primary } };
-  t.alignment = { vertical: 'middle' };
-  sheet.getRow(1).height = 26;
-  const s = sheet.getCell('A2');
-  s.value = subtitle;
-  s.font = { italic: true, color: { argb: COLOR.muted } };
-}
-
 function toRupiah(m: Money): number {
   return m.toNumber();
+}
+
+function styleHeader(row: ExcelJS.Row, argb: string, cols: number): void {
+  row.height = 22;
+  for (let c = 1; c <= cols; c++) {
+    const cell = row.getCell(c);
+    cell.font = { bold: true, color: { argb: COLOR.headerText } };
+    cell.fill = fill(argb);
+    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.border = BORDER;
+  }
+}
+
+/** Full-width coloured band used as a section title. */
+function addBand(sheet: ExcelJS.Worksheet, rowNum: number, text: string): void {
+  sheet.mergeCells(`A${rowNum}:E${rowNum}`);
+  const row = sheet.getRow(rowNum);
+  row.height = 24;
+  const cell = row.getCell(1);
+  cell.value = text;
+  cell.font = { bold: true, size: 13, color: { argb: COLOR.headerText } };
+  cell.fill = fill(COLOR.primary);
+  cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 }
 
 /** Category breakdown table, largest first. Returns the next free row number. */
@@ -77,33 +77,40 @@ function addBreakdown(
   accent: string,
 ): number {
   if (totals.size === 0) return startRow;
+  sheet.mergeCells(`A${startRow}:B${startRow}`);
   const header = sheet.getRow(startRow);
-  header.values = [title, 'Jumlah', 'Persentase'];
-  styleHeader(header);
-  header.getCell(1).alignment = { vertical: 'middle', horizontal: 'left' };
-  header.getCell(1).fill = fill(accent);
-  header.getCell(2).fill = fill(accent);
-  header.getCell(3).fill = fill(accent);
+  header.getCell(1).value = title;
+  header.getCell(3).value = 'Jumlah';
+  header.getCell(4).value = 'Persentase';
+  styleHeader(header, accent, 4);
+  header.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
   const entries = [...totals.entries()].sort((a, b) => b[1].compareTo(a[1]));
   let r = startRow + 1;
-  for (const [name, sum] of entries) {
+  entries.forEach(([name, sum], i) => {
     const share = grand.isZero() ? 0 : Number((sum.minorUnits * 10000n) / grand.minorUnits) / 10000;
+    sheet.mergeCells(`A${r}:B${r}`);
     const row = sheet.getRow(r);
-    row.values = [name, toRupiah(sum), share];
-    row.getCell(2).numFmt = RUPIAH_FORMAT;
-    row.getCell(3).numFmt = '0.0%';
-    row.eachCell((c) => (c.border = BORDER));
-    if ((r - startRow) % 2 === 0) row.eachCell((c) => (c.fill = fill(COLOR.stripe)));
+    row.getCell(1).value = name;
+    row.getCell(1).alignment = { indent: 1 };
+    row.getCell(3).value = toRupiah(sum);
+    row.getCell(3).numFmt = RUPIAH_FORMAT;
+    row.getCell(4).value = share;
+    row.getCell(4).numFmt = '0.0%';
+    row.getCell(4).alignment = { horizontal: 'right' };
+    for (let c = 1; c <= 4; c++) {
+      row.getCell(c).border = BORDER;
+      if (i % 2 === 1) row.getCell(c).fill = fill(COLOR.stripe);
+    }
     r++;
-  }
+  });
   return r + 1;
 }
 
 /**
  * Exports a user's transactions for a period to a formatted Excel workbook (.xlsx):
- * a "Transaksi" sheet (sorted by date) and a "Ringkasan" sheet with totals and
- * per-category breakdown for the exported range.
+ * a single "Transaksi" sheet with the date-sorted transaction table followed by a
+ * summary (totals + per-category breakdown) for the exported range.
  */
 @Injectable()
 export class CsvExportService {
@@ -135,19 +142,27 @@ export class CsvExportService {
     wb.creator = 'Cuanki';
     wb.created = now;
 
-    // ---- Sheet 1: Transaksi ----
-    const tx = wb.addWorksheet('Transaksi', { views: [{ state: 'frozen', ySplit: 4 }] });
-    tx.columns = [
-      { key: 'date', width: 13 },
-      { key: 'type', width: 14 },
-      { key: 'amount', width: 18 },
-      { key: 'desc', width: 34 },
-      { key: 'cat', width: 20 },
-    ];
-    addTitle(tx, 'Laporan Transaksi', `Periode: ${label}`, 5);
-    const header = tx.getRow(4);
+    const sheet = wb.addWorksheet('Transaksi', {
+      views: [{ state: 'frozen', ySplit: TABLE_HEADER_ROW }],
+    });
+    sheet.columns = [{ width: 13 }, { width: 14 }, { width: 18 }, { width: 34 }, { width: 20 }];
+
+    // ---- Title ----
+    sheet.mergeCells('A1:E1');
+    sheet.mergeCells('A2:E2');
+    const title = sheet.getCell('A1');
+    title.value = 'Laporan Keuangan';
+    title.font = { bold: true, size: 16, color: { argb: COLOR.primary } };
+    title.alignment = { vertical: 'middle' };
+    sheet.getRow(1).height = 26;
+    const subtitle = sheet.getCell('A2');
+    subtitle.value = `Periode: ${label}`;
+    subtitle.font = { italic: true, color: { argb: COLOR.muted } };
+
+    // ---- Transaction table ----
+    const header = sheet.getRow(TABLE_HEADER_ROW);
     header.values = ['Tanggal', 'Tipe', 'Jumlah', 'Deskripsi', 'Kategori'];
-    styleHeader(header);
+    styleHeader(header, COLOR.primary, 5);
 
     let income = Money.zero();
     let expense = Money.zero();
@@ -157,7 +172,7 @@ export class CsvExportService {
     rows.forEach((t, i) => {
       const category = (t.categoryId && categoryNames.get(t.categoryId)) || '';
       const isIncome = t.type === TransactionType.INCOME;
-      const row = tx.getRow(5 + i);
+      const row = sheet.getRow(TABLE_HEADER_ROW + 1 + i);
       row.values = [
         formatDate(t.occurredAt, tz),
         isIncome ? 'Pemasukan' : 'Pengeluaran',
@@ -183,14 +198,16 @@ export class CsvExportService {
       if (isIncome) income = income.add(t.amount);
       else expense = expense.add(t.amount);
     });
-    if (rows.length > 0) {
-      tx.autoFilter = { from: 'A4', to: `E${4 + rows.length}` };
-    }
 
-    // ---- Sheet 2: Ringkasan ----
-    const sum = wb.addWorksheet('Ringkasan');
-    sum.columns = [{ width: 30 }, { width: 20 }, { width: 14 }];
-    addTitle(sum, 'Ringkasan Keuangan', `Periode: ${label}`, 3);
+    if (rows.length === 0) {
+      return this.finish(wb, slug, 0);
+    }
+    const lastRow = TABLE_HEADER_ROW + rows.length;
+    sheet.autoFilter = { from: `A${TABLE_HEADER_ROW}`, to: `E${lastRow}` };
+
+    // ---- Summary (below the table) ----
+    const bandRow = lastRow + 3;
+    addBand(sheet, bandRow, 'RINGKASAN');
 
     const balance = income.subtract(expense);
     const cards: [string, string | number, string, string, string?][] = [
@@ -206,38 +223,43 @@ export class CsvExportService {
       ],
     ];
     cards.forEach(([name, value, color, bg, fmt], i) => {
-      const row = sum.getRow(4 + i);
-      row.values = [name, value];
+      const r = bandRow + 1 + i;
+      sheet.mergeCells(`A${r}:B${r}`);
+      const row = sheet.getRow(r);
       row.height = 22;
-      sum.mergeCells(`B${4 + i}:C${4 + i}`);
-      row.eachCell((c) => {
-        c.fill = fill(bg);
-        c.border = BORDER;
-        c.alignment = { vertical: 'middle' };
-      });
+      row.getCell(1).value = name;
       row.getCell(1).font = { bold: true };
-      row.getCell(2).font = { bold: true, size: 12, color: { argb: color } };
-      row.getCell(2).alignment = { vertical: 'middle', horizontal: 'right' };
-      if (fmt) row.getCell(2).numFmt = fmt;
+      row.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+      row.getCell(3).value = value;
+      row.getCell(3).font = { bold: true, size: 12, color: { argb: color } };
+      row.getCell(3).alignment = { vertical: 'middle', horizontal: 'right' };
+      if (fmt) row.getCell(3).numFmt = fmt;
+      for (let c = 1; c <= 3; c++) {
+        row.getCell(c).fill = fill(bg);
+        row.getCell(c).border = BORDER;
+      }
     });
 
-    let next = 9;
+    let next = bandRow + cards.length + 2;
     next = addBreakdown(
-      sum,
+      sheet,
       next,
       'Pengeluaran per Kategori',
       expenseByCat,
       expense,
       COLOR.expense,
     );
-    addBreakdown(sum, next, 'Pemasukan per Kategori', incomeByCat, income, COLOR.income);
+    addBreakdown(sheet, next, 'Pemasukan per Kategori', incomeByCat, income, COLOR.income);
 
-    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
+    return this.finish(wb, slug, rows.length);
+  }
+
+  private async finish(wb: ExcelJS.Workbook, slug: string, rowCount: number): Promise<CsvExport> {
     return {
-      content: buffer,
+      content: Buffer.from(await wb.xlsx.writeBuffer()),
       filename: `transaksi-${slug}.xlsx`,
       mimeType: XLSX_MIME,
-      rowCount: rows.length,
+      rowCount,
     };
   }
 }

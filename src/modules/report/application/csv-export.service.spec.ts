@@ -74,7 +74,7 @@ describe('CsvExportService (xlsx)', () => {
     expect(categories.findById).toHaveBeenCalledTimes(1);
   });
 
-  it('adds a summary sheet with totals and category breakdown', async () => {
+  it('adds a summary below the table with totals and category breakdown', async () => {
     transactions.findManyInRange.mockResolvedValue([
       tx({
         description: 'gaji',
@@ -88,14 +88,15 @@ describe('CsvExportService (xlsx)', () => {
     categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
 
     const out = await service.export('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
-    const sheet = (await load(out.content)).getWorksheet('Ringkasan')!;
+    const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
 
-    expect(sheet.getCell('B4').value).toBe(3);
-    expect(sheet.getCell('B5').value).toBe(100000);
-    expect(sheet.getCell('B6').value).toBe(100000);
-    expect(sheet.getCell('B7').value).toBe(0);
-    expect(sheet.getCell('A9').value).toBe('Pengeluaran per Kategori');
-    expect(sheet.getCell('A10').value).toBe('Makanan');
-    expect(sheet.getCell('C10').value).toBe(1);
+    expect(sheet.getCell('A10').value).toBe('RINGKASAN');
+    expect(sheet.getCell('C11').value).toBe(3);
+    expect(sheet.getCell('C12').value).toBe(100000);
+    expect(sheet.getCell('C13').value).toBe(100000);
+    expect(sheet.getCell('C14').value).toBe(0);
+    expect(sheet.getCell('A16').value).toBe('Pengeluaran per Kategori');
+    expect(sheet.getCell('A17').value).toBe('Makanan');
+    expect(sheet.getCell('D17').value).toBe(1);
   });
 });
