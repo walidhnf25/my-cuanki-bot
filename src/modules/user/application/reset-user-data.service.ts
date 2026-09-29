@@ -4,7 +4,13 @@ import { RowDeletion, SheetsClient } from 'src/sheets/sheets.client';
 import { SheetName } from 'src/sheets/sheets.schema';
 
 /** Tabs whose rows belong to a user (via `user_id`) and are wiped on reset. */
-const USER_OWNED_SHEETS: SheetName[] = ['transactions', 'budgets', 'conversations', 'categories'];
+const USER_OWNED_SHEETS: SheetName[] = [
+  'transactions',
+  'transfers',
+  'budgets',
+  'conversations',
+  'categories',
+];
 
 /**
  * Wipes all data belonging to a single user so they can start over. Removes

@@ -10,6 +10,8 @@ export enum IntentType {
   Export = 'EXPORT',
   ResetData = 'RESET_DATA',
   Balance = 'BALANCE',
+  Transfer = 'TRANSFER',
+  DeleteTransfer = 'DELETE_TRANSFER',
   SetOpeningBalance = 'SET_OPENING_BALANCE',
   SetDefaultWallet = 'SET_DEFAULT_WALLET',
   Help = 'HELP',
@@ -91,6 +93,18 @@ export interface BalanceIntent extends BaseIntent {
   type: IntentType.Balance;
 }
 
+/** Move money between wallets. `from`/`to` are null when the message left them out. */
+export interface TransferIntent extends BaseIntent {
+  type: IntentType.Transfer;
+  from: Wallet | null;
+  to: Wallet | null;
+  amount: Money | null;
+}
+
+export interface DeleteTransferIntent extends BaseIntent {
+  type: IntentType.DeleteTransfer;
+}
+
 export interface SetOpeningBalanceIntent extends BaseIntent {
   type: IntentType.SetOpeningBalance;
   wallet: Wallet | null;
@@ -128,6 +142,8 @@ export type ParsedIntent =
   | ExportIntent
   | ResetDataIntent
   | BalanceIntent
+  | TransferIntent
+  | DeleteTransferIntent
   | SetOpeningBalanceIntent
   | SetDefaultWalletIntent
   | HelpIntent

@@ -5,6 +5,7 @@ import { IntentType, ParsedIntent } from 'src/modules/parser/domain/parsed-inten
 import { SummaryResult } from 'src/modules/report/domain/summary.types';
 import { TransactionResult } from 'src/modules/transaction/application/transaction.service';
 import { WalletOverview } from 'src/modules/wallet/application/wallet.service';
+import { TransferEntity } from 'src/modules/wallet/domain/transfer.entity';
 import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
 import { Money } from 'src/shared/utils/money';
@@ -184,6 +185,11 @@ export class ReplyBuilder {
           `⬆️ Masuk ${l.income.format()}`,
           `⬇️ Keluar ${l.expense.format()}`,
         );
+        if (!l.transferIn.isZero() || !l.transferOut.isZero()) {
+          lines.push(
+            `🔁 Transfer: masuk ${l.transferIn.format()} · keluar ${l.transferOut.format()}`,
+          );
+        }
         if (l.categories.length > 0) {
           lines.push('📂 Pengeluaran per kategori:');
           for (const c of l.categories) {
@@ -214,6 +220,45 @@ export class ReplyBuilder {
       lines.push('', '_Atur saldo awal: saldo awal cash 200rb_');
     }
     return lines.join('\n');
+  }
+
+  transferRecorded(t: TransferEntity, overview: WalletOverview): string {
+    return [
+      '🔁 *Transfer dicatat!*',
+      `${WALLET_LABEL[t.from]} → ${WALLET_LABEL[t.to]}: *${t.amount.format()}*`,
+      '',
+      '*Saldo sekarang:*',
+      ...overview.lines.map((l) => `${WALLET_LABEL[l.wallet]}: ${l.balance.format()}`),
+    ].join('\n');
+  }
+
+  deleteTransferConfirm(t: TransferEntity): string {
+    return [
+      '🗑️ Hapus transfer terakhir?',
+      `${WALLET_LABEL[t.from]} → ${WALLET_LABEL[t.to]}: ${t.amount.format()}`,
+      '',
+      'Ketik *ya* untuk hapus, *tidak* untuk batal.',
+    ].join('\n');
+  }
+
+  transferDeleted(t: TransferEntity): string {
+    return `🗑️ Transfer dihapus: ${WALLET_LABEL[t.from]} → ${WALLET_LABEL[t.to]} ${t.amount.format()}.`;
+  }
+
+  nothingToDeleteTransfer(): string {
+    return 'Belum ada transfer yang bisa dihapus. 🙂';
+  }
+
+  askTransferAmount(): string {
+    return 'Sebutkan nominalnya. Contoh: _tarik tunai 500rb_ atau _pindah 300rb dari cash ke digital_';
+  }
+
+  askTransferDirection(): string {
+    return 'Sebutkan arahnya. Contoh: _pindah 500rb dari digital ke cash_';
+  }
+
+  transferSameWallet(): string {
+    return 'Dompet asal dan tujuan tidak boleh sama. 🙂';
   }
 
   openingBalanceSet(wallet: Wallet, amount: Money): string {
@@ -298,6 +343,10 @@ export class ReplyBuilder {
       '• _gaji 5 juta transfer_ (juga: qris, gopay, ovo, debit)',
       '• _saldo_ (lihat saldo tiap dompet)',
       '• _saldo awal cash 200rb_',
+      '• _tarik tunai 500rb_ (digital ke cash)',
+      '• _setor tunai 200rb_ (cash ke digital)',
+      '• _pindah 300rb dari cash ke digital_',
+      '• _hapus transfer_ (batalkan transfer terakhir)',
       '• _default digital_ (dompet jika tidak disebut)',
       '• _edit ke digital_ (ubah dompet transaksi terakhir)',
       '',

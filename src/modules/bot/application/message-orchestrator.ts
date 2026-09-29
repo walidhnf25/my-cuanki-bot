@@ -118,6 +118,15 @@ export class MessageOrchestrator {
     if (context.state === ConversationState.AWAITING_DELETE_CONFIRM) {
       const answer = this.yesNo(message.text);
       if (answer === 'yes') {
+        if ((context.payload as { target?: string } | null)?.target === 'transfer') {
+          const removed = await this.wallets.deleteLastTransfer(user.id);
+          await this.conversation.clear(user.id);
+          return {
+            text: removed
+              ? this.replies.transferDeleted(removed)
+              : this.replies.nothingToDeleteTransfer(),
+          };
+        }
         const deleted = await this.transactions.deleteLast(user.id);
         await this.conversation.clear(user.id);
         return {
@@ -251,6 +260,33 @@ export class MessageOrchestrator {
               ? { content: csv.content, filename: csv.filename, mimeType: csv.mimeType }
               : undefined,
         };
+      }
+
+      case IntentType.Transfer: {
+        if (intent.amount === null) return { text: this.replies.askTransferAmount() };
+        if (intent.from === null || intent.to === null) {
+          return { text: this.replies.askTransferDirection() };
+        }
+        if (intent.from === intent.to) return { text: this.replies.transferSameWallet() };
+        const transfer = await this.wallets.transfer(
+          user.id,
+          intent.from,
+          intent.to,
+          intent.amount,
+          now,
+          message.messageId,
+        );
+        if (!transfer) return {};
+        return {
+          text: this.replies.transferRecorded(transfer, await this.wallets.current(user.id)),
+        };
+      }
+
+      case IntentType.DeleteTransfer: {
+        const last = await this.wallets.getLastTransfer(user.id);
+        if (!last) return { text: this.replies.nothingToDeleteTransfer() };
+        await this.conversation.awaitDeleteConfirm(user.id, now, 'transfer');
+        return { text: this.replies.deleteTransferConfirm(last) };
       }
 
       case IntentType.Balance:

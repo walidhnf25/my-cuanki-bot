@@ -110,8 +110,15 @@ describe('MessageOrchestrator', () => {
     reports = { generateSummary: jest.fn() } as unknown as jest.Mocked<ReportService>;
     csvExport = { export: jest.fn() } as unknown as jest.Mocked<CsvExportService>;
     wallets = {
-      overview: jest.fn().mockResolvedValue({ enabled: false, lines: [], total: Money.zero() }),
-      current: jest.fn().mockResolvedValue({ enabled: false, lines: [], total: Money.zero() }),
+      overview: jest
+        .fn()
+        .mockResolvedValue({ enabled: false, lines: [], total: Money.zero(), transfers: [] }),
+      current: jest
+        .fn()
+        .mockResolvedValue({ enabled: false, lines: [], total: Money.zero(), transfers: [] }),
+      transfer: jest.fn(),
+      getLastTransfer: jest.fn(),
+      deleteLastTransfer: jest.fn(),
       setOpeningBalance: jest.fn(),
       setDefault: jest.fn(),
       clearSettings: jest.fn().mockResolvedValue(undefined),
@@ -279,7 +286,7 @@ describe('MessageOrchestrator', () => {
     });
 
     describe('asking for the wallet', () => {
-      const enabledOverview = { enabled: true, lines: [], total: Money.zero() };
+      const enabledOverview = { enabled: true, lines: [], total: Money.zero(), transfers: [] };
 
       it('asks which wallet when the user uses wallets but has no default', async () => {
         wallets.current.mockResolvedValue(enabledOverview);
@@ -382,6 +389,81 @@ describe('MessageOrchestrator', () => {
       });
     });
 
+    describe('transfers', () => {
+      const transferEntity = {
+        id: 't1',
+        userId: 'u1',
+        from: Wallet.DIGITAL,
+        to: Wallet.CASH,
+        amount: Money.fromMajor(500000),
+        note: null,
+        occurredAt: NOW,
+        messageId: 'w1',
+        deletedAt: null,
+        createdAt: NOW,
+      };
+
+      it('moves money from digital to cash on "tarik tunai"', async () => {
+        wallets.transfer.mockResolvedValue(transferEntity);
+        const reply = await orchestrator.process(user, msg('tarik tunai 500rb', 'w20'));
+
+        expect(wallets.transfer).toHaveBeenCalledWith(
+          'u1',
+          Wallet.DIGITAL,
+          Wallet.CASH,
+          expect.objectContaining({}),
+          NOW,
+          'w20',
+        );
+        expect(wallets.transfer.mock.calls[0][3].toNumber()).toBe(500000);
+        expect(reply.text).toContain('Transfer dicatat');
+        expect(reply.text).toContain('Rp500.000');
+      });
+
+      it('sends nothing for an already-recorded message', async () => {
+        wallets.transfer.mockResolvedValue(null);
+        expect(await orchestrator.process(user, msg('tarik tunai 500rb'))).toEqual({});
+      });
+
+      it('asks for the amount or the direction when missing', async () => {
+        const noAmount = await orchestrator.process(user, msg('tarik tunai'));
+        expect(noAmount.text).toContain('nominal');
+        const noDirection = await orchestrator.process(user, msg('pindah 300rb'));
+        expect(noDirection.text).toContain('arah');
+        expect(wallets.transfer).not.toHaveBeenCalled();
+      });
+
+      it('rejects a transfer to the same wallet', async () => {
+        const reply = await orchestrator.process(user, msg('pindah 300rb dari cash ke cash'));
+        expect(reply.text).toContain('tidak boleh sama');
+        expect(wallets.transfer).not.toHaveBeenCalled();
+      });
+
+      it('confirms before deleting the latest transfer', async () => {
+        wallets.getLastTransfer.mockResolvedValue(transferEntity);
+        const ask = await orchestrator.process(user, msg('hapus transfer'));
+        expect(conversation.awaitDeleteConfirm).toHaveBeenCalledWith('u1', NOW, 'transfer');
+        expect(ask.text).toContain('Hapus transfer terakhir');
+
+        conversation.getActive.mockResolvedValue({
+          state: ConversationState.AWAITING_DELETE_CONFIRM,
+          payload: { target: 'transfer' },
+        } as unknown as ConversationContextEntity);
+        wallets.deleteLastTransfer.mockResolvedValue(transferEntity);
+        const done = await orchestrator.process(user, msg('ya', 'w21'));
+        expect(wallets.deleteLastTransfer).toHaveBeenCalledWith('u1');
+        expect(transactions.deleteLast).not.toHaveBeenCalled();
+        expect(done.text).toContain('Transfer dihapus');
+      });
+
+      it('says so when there is no transfer to delete', async () => {
+        wallets.getLastTransfer.mockResolvedValue(null);
+        const reply = await orchestrator.process(user, msg('hapus transfer'));
+        expect(reply.text).toContain('Belum ada transfer');
+        expect(conversation.awaitDeleteConfirm).not.toHaveBeenCalled();
+      });
+    });
+
     it('shows balances for the balance command', async () => {
       wallets.current.mockResolvedValue({
         enabled: true,
@@ -391,6 +473,8 @@ describe('MessageOrchestrator', () => {
             income: Money.zero(),
             expense: Money.zero(),
             balance: Money.fromMajor(400000),
+            transferIn: Money.zero(),
+            transferOut: Money.zero(),
             categories: [],
           },
           {
@@ -398,10 +482,13 @@ describe('MessageOrchestrator', () => {
             income: Money.zero(),
             expense: Money.zero(),
             balance: Money.fromMajor(150000),
+            transferIn: Money.zero(),
+            transferOut: Money.zero(),
             categories: [],
           },
         ],
         total: Money.fromMajor(550000),
+        transfers: [],
       });
       const reply = await orchestrator.process(user, msg('saldo'));
       expect(reply.text).toContain('Rp400.000');

@@ -45,6 +45,18 @@ export const SHEET_COLUMNS = {
     'created_at',
     'updated_at',
   ],
+  transfers: [
+    'id',
+    'user_id',
+    'from_wallet',
+    'to_wallet',
+    'amount',
+    'note',
+    'occurred_at',
+    'message_id',
+    'deleted_at',
+    'created_at',
+  ],
   conversations: ['id', 'user_id', 'state', 'payload', 'expires_at', 'created_at', 'updated_at'],
 } as const;
 

@@ -87,6 +87,8 @@ describe('ReplyBuilder', () => {
       income: Money.zero(),
       expense: Money.zero(),
       balance: Money.fromMajor(1000),
+      transferIn: wallet === Wallet.DIGITAL ? Money.fromMajor(500) : Money.zero(),
+      transferOut: Money.zero(),
       categories:
         wallet === Wallet.CASH
           ? [{ name: 'Makanan', icon: '🍜', total: Money.fromMajor(75000) }]
@@ -96,6 +98,7 @@ describe('ReplyBuilder', () => {
       enabled: true,
       lines: [line(Wallet.CASH), line(Wallet.DIGITAL)],
       total: Money.zero(),
+      transfers: [],
     };
 
     expect(replies.summary(summary)).not.toContain('Per dompet');
@@ -112,6 +115,10 @@ describe('ReplyBuilder', () => {
     expect(text.indexOf('Digital')).toBeLessThan(text.indexOf('Transportasi: Rp20.000'));
     // The combined list is replaced, not repeated.
     expect(text.match(/Pengeluaran per kategori/g)).toHaveLength(2);
+
+    // A transfer line appears only for wallets that moved money.
+    expect(text.match(/🔁 Transfer/g)).toHaveLength(1);
+    expect(text).toContain('🔁 Transfer: masuk Rp500 · keluar Rp0');
   });
 
   it('shows the help menu', () => {

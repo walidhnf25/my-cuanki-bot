@@ -211,6 +211,50 @@ describe('RuleBasedParser', () => {
     });
   });
 
+  describe('transfers', () => {
+    const transferOf = async (text: string) => {
+      const intent = await parse(text);
+      if (intent.type !== IntentType.Transfer) throw new Error(`not a transfer: ${text}`);
+      return intent;
+    };
+
+    it.each([
+      ['tarik tunai 500rb', Wallet.DIGITAL, Wallet.CASH, 500000],
+      ['tarik 1 juta', Wallet.DIGITAL, Wallet.CASH, 1000000],
+      ['setor tunai 200rb', Wallet.CASH, Wallet.DIGITAL, 200000],
+      ['pindah 300rb dari cash ke digital', Wallet.CASH, Wallet.DIGITAL, 300000],
+      ['pindahkan 300rb dari digital ke cash', Wallet.DIGITAL, Wallet.CASH, 300000],
+      ['pindah 300rb ke cash', Wallet.DIGITAL, Wallet.CASH, 300000],
+      ['pindah 300rb dari cash', Wallet.CASH, Wallet.DIGITAL, 300000],
+    ])('parses "%s"', async (text, from, to, amount) => {
+      const intent = await transferOf(text);
+      expect(intent.from).toBe(from);
+      expect(intent.to).toBe(to);
+      expect(intent.amount?.toNumber()).toBe(amount);
+    });
+
+    it('leaves gaps for the bot to ask about', async () => {
+      const noDirection = await transferOf('pindah 300rb');
+      expect(noDirection.from).toBeNull();
+      expect(noDirection.to).toBeNull();
+      const noAmount = await transferOf('tarik tunai');
+      expect(noAmount.amount).toBeNull();
+    });
+
+    it('parses deleting the latest transfer', async () => {
+      expect((await parse('hapus transfer')).type).toBe(IntentType.DeleteTransfer);
+      expect((await parse('batal pindah')).type).toBe(IntentType.DeleteTransfer);
+      expect((await parse('hapus transfer terakhir')).type).toBe(IntentType.DeleteTransfer);
+    });
+
+    it('does not confuse ordinary messages with transfers', async () => {
+      expect((await parse('hapus bensin transfer')).type).toBe(IntentType.DeleteTransaction);
+      expect((await parse('hapus')).type).toBe(IntentType.DeleteTransaction);
+      expect((await parse('gaji 5 juta transfer')).type).toBe(IntentType.RecordTransaction);
+      expect((await parse('setor 100rb')).type).not.toBe(IntentType.Transfer);
+    });
+  });
+
   describe('parseAmount (clarification helper)', () => {
     it('extracts a bare amount', () => {
       expect(parser.parseAmount('25 ribu')?.toNumber()).toBe(25000);

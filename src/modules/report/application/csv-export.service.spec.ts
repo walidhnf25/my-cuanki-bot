@@ -110,6 +110,8 @@ describe('CsvExportService (xlsx)', () => {
           income: Money.fromMajor(100000),
           expense: Money.fromMajor(25000),
           balance: Money.fromMajor(75000),
+          transferIn: Money.zero(),
+          transferOut: Money.zero(),
           categories: [],
         },
         {
@@ -117,10 +119,13 @@ describe('CsvExportService (xlsx)', () => {
           income: Money.zero(),
           expense: Money.fromMajor(10000),
           balance: Money.fromMajor(190000),
+          transferIn: Money.zero(),
+          transferOut: Money.zero(),
           categories: [],
         },
       ],
       total: Money.fromMajor(265000),
+      transfers: [],
     };
 
     it('adds a Dompet column and a per-wallet summary table', async () => {
@@ -162,6 +167,44 @@ describe('CsvExportService (xlsx)', () => {
       expect(sheet.getCell('C21').value).toBe(25000);
       expect(sheet.getCell('D21').value).toBe(25000);
       expect(sheet.getCell('E21').value).toBe(50000);
+    });
+
+    it('lists the period transfers below the wallet table', async () => {
+      transactions.findManyInRange.mockResolvedValue([tx()]);
+      categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
+
+      const out = await service.export(
+        'u1',
+        SummaryPeriod.Month,
+        new Date(),
+        'Asia/Jakarta',
+        undefined,
+        {
+          ...overview,
+          transfers: [
+            {
+              id: 't1',
+              userId: 'u1',
+              from: Wallet.DIGITAL,
+              to: Wallet.CASH,
+              amount: Money.fromMajor(500000),
+              note: null,
+              occurredAt: new Date('2026-07-15T05:00:00.000Z'),
+              messageId: null,
+              deletedAt: null,
+              createdAt: new Date(),
+            },
+          ],
+        },
+      );
+      const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
+
+      // Wallet table 14-17 (header, cash, digital, total); transfers start after a blank row.
+      expect(sheet.getCell('A19').value).toBe('Transfer Antar Dompet');
+      expect(sheet.getCell('A20').value).toBe('15/07/2026');
+      expect(sheet.getCell('C20').value).toBe('Digital');
+      expect(sheet.getCell('D20').value).toBe('Cash');
+      expect(sheet.getCell('E20').value).toBe(500000);
     });
 
     it('omits wallet detail when wallets are not enabled', async () => {

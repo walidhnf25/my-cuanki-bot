@@ -4,6 +4,7 @@ import { CategoryRepository } from 'src/modules/category/domain/category.reposit
 import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { WalletOverview } from 'src/modules/wallet/application/wallet.service';
+import { TransferEntity } from 'src/modules/wallet/domain/transfer.entity';
 import { DEFAULT_WALLET, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
 import { Money } from 'src/shared/utils/money';
@@ -104,6 +105,43 @@ function addBreakdown(
     row.getCell(4).numFmt = '0.0%';
     row.getCell(4).alignment = { horizontal: 'right' };
     for (let c = 1; c <= 4; c++) {
+      row.getCell(c).border = BORDER;
+      if (i % 2 === 1) row.getCell(c).fill = fill(COLOR.stripe);
+    }
+    r++;
+  });
+  return r + 1;
+}
+
+/** Transfers inside the period: date, from, to, amount. Returns the next free row. */
+function addTransferTable(
+  sheet: ExcelJS.Worksheet,
+  startRow: number,
+  transfers: TransferEntity[],
+  tz: string,
+): number {
+  sheet.mergeCells(`A${startRow}:B${startRow}`);
+  const header = sheet.getRow(startRow);
+  header.getCell(1).value = 'Transfer Antar Dompet';
+  header.getCell(3).value = 'Dari';
+  header.getCell(4).value = 'Ke';
+  header.getCell(5).value = 'Jumlah';
+  styleHeader(header, COLOR.primary, 5);
+  header.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+  let r = startRow + 1;
+  transfers.forEach((t, i) => {
+    sheet.mergeCells(`A${r}:B${r}`);
+    const row = sheet.getRow(r);
+    row.getCell(1).value = formatDate(t.occurredAt, tz);
+    row.getCell(1).alignment = { indent: 1 };
+    row.getCell(3).value = WALLET_NAME[t.from];
+    row.getCell(4).value = WALLET_NAME[t.to];
+    row.getCell(3).alignment = { horizontal: 'center' };
+    row.getCell(4).alignment = { horizontal: 'center' };
+    row.getCell(5).value = toRupiah(t.amount);
+    row.getCell(5).numFmt = RUPIAH_FORMAT;
+    for (let c = 1; c <= 5; c++) {
       row.getCell(c).border = BORDER;
       if (i % 2 === 1) row.getCell(c).fill = fill(COLOR.stripe);
     }
@@ -366,6 +404,9 @@ export class CsvExportService {
     let next = bandRow + cards.length + 2;
     if (wallets && showWallets) {
       next = addWalletTable(sheet, next, wallets);
+      if (wallets.transfers.length > 0) {
+        next = addTransferTable(sheet, next, wallets.transfers, tz);
+      }
     }
     next = showWallets
       ? addWalletBreakdown(

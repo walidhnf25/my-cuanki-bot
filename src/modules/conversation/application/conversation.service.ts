@@ -40,12 +40,12 @@ export class ConversationService {
     });
   }
 
-  /** Ask the user to confirm deleting their latest transaction. */
-  async awaitDeleteConfirm(userId: string, now: Date): Promise<void> {
+  /** Ask the user to confirm deleting their latest transaction (or transfer). */
+  async awaitDeleteConfirm(userId: string, now: Date, target?: 'transfer'): Promise<void> {
     await this.repository.set({
       userId,
       state: ConversationState.AWAITING_DELETE_CONFIRM,
-      payload: null,
+      payload: target ? { target } : null,
       expiresAt: new Date(now.getTime() + CONTEXT_TTL_MS),
     });
   }

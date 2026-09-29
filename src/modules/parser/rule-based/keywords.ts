@@ -59,6 +59,9 @@ export const DIGITAL_WALLET_WORDS = [
   'seabank',
 ];
 
+/** Verbs for moving money between wallets ("pindah 500rb dari digital ke cash"). */
+export const TRANSFER_WORDS = ['pindah', 'pindahkan', 'pindahin', 'mutasi'];
+
 export const BALANCE_WORDS = ['saldo'];
 
 export const DEFAULT_WORDS = ['default', 'utama', 'standar'];

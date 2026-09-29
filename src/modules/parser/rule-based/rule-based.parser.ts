@@ -23,6 +23,7 @@ import {
   INCOME_WORDS,
   STOPWORDS,
   SUMMARY_WORDS,
+  TRANSFER_WORDS,
 } from './keywords';
 
 const WALLET_WORDS = [...CASH_WALLET_WORDS, ...DIGITAL_WALLET_WORDS];
@@ -78,6 +79,10 @@ export class RuleBasedParser extends MessageParser {
     }
     if (has(DEFAULT_WORDS) && this.detectWallet(tokens) !== null) {
       return { type: IntentType.SetDefaultWallet, raw, wallet: this.detectWallet(tokens) };
+    }
+    const transfer = this.detectTransfer(raw, normalized, tokens, has);
+    if (transfer !== null) {
+      return transfer;
     }
     if (has(DELETE_WORDS)) {
       return { type: IntentType.DeleteTransaction, raw };
@@ -179,6 +184,58 @@ export class RuleBasedParser extends MessageParser {
   }
 
   // ---- Helpers ----
+
+  /**
+   * Wallet-to-wallet transfer. Recognised forms:
+   *  - "tarik tunai 500rb"            digital -> cash (ATM withdrawal)
+   *  - "setor tunai 200rb"            cash -> digital (bank deposit)
+   *  - "pindah 500rb dari digital ke cash" / "pindah 500rb ke cash" / "pindah 500rb dari cash"
+   *  - "hapus transfer" / "batal pindah"  undo the latest transfer
+   */
+  private detectTransfer(
+    raw: string,
+    normalized: string,
+    tokens: Set<string>,
+    has: (words: string[]) => boolean,
+  ): ParsedIntent | null {
+    const isMove = has(TRANSFER_WORDS);
+    const isWithdraw = tokens.has('tarik');
+    const isDeposit =
+      tokens.has('setor') &&
+      (tokens.has('tunai') || tokens.has('cash') || tokens.has('kas') || tokens.has('digital'));
+    // "hapus transfer" alone is ambiguous with deleting a transaction tagged "transfer",
+    // so it only counts when nothing else is said.
+    const filler = new Set(['terakhir', 'dompet', 'antar', 'yang', 'tadi', 'itu']);
+    const rest = [...tokens].filter((t) => !DELETE_WORDS.includes(t) && !filler.has(t));
+    const deleteOnlyTransfer = has(DELETE_WORDS) && rest.length === 1 && rest[0] === 'transfer';
+    if (has(DELETE_WORDS) && (isMove || deleteOnlyTransfer)) {
+      return { type: IntentType.DeleteTransfer, raw };
+    }
+    if (!isMove && !isWithdraw && !isDeposit) return null;
+
+    const amount = extractAmount(raw)?.amount ?? null;
+    if (isWithdraw)
+      return { type: IntentType.Transfer, raw, from: Wallet.DIGITAL, to: Wallet.CASH, amount };
+    if (isDeposit)
+      return { type: IntentType.Transfer, raw, from: Wallet.CASH, to: Wallet.DIGITAL, amount };
+
+    // Direction from "dari <wallet>" / "ke <wallet>"; a single side implies the other.
+    let from: Wallet | null = null;
+    let to: Wallet | null = null;
+    let marker: 'dari' | 'ke' | null = null;
+    for (const token of normalized.split(/\s+/)) {
+      if (token === 'dari' || token === 'ke') {
+        marker = token;
+        continue;
+      }
+      const wallet = this.detectWallet(new Set([token]));
+      if (wallet !== null && marker === 'dari') from = wallet;
+      else if (wallet !== null && marker === 'ke') to = wallet;
+    }
+    if (from !== null && to === null) to = from === Wallet.CASH ? Wallet.DIGITAL : Wallet.CASH;
+    if (to !== null && from === null) from = to === Wallet.CASH ? Wallet.DIGITAL : Wallet.CASH;
+    return { type: IntentType.Transfer, raw, from, to, amount };
+  }
 
   /** First wallet word found in the message, or null when none is named. */
   private detectWallet(tokens: Set<string>): Wallet | null {

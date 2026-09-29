@@ -1,5 +1,7 @@
 import { SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { CategoryRepository } from 'src/modules/category/domain/category.repository';
+import { TransferEntity } from '../domain/transfer.entity';
+import { TransferRepository } from '../domain/transfer.repository';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
@@ -31,6 +33,7 @@ describe('WalletService', () => {
   let transactions: jest.Mocked<TransactionRepository>;
   let users: jest.Mocked<UserRepository>;
   let categories: jest.Mocked<CategoryRepository>;
+  let transfers: jest.Mocked<TransferRepository>;
   let service: WalletService;
 
   beforeEach(() => {
@@ -49,7 +52,19 @@ describe('WalletService', () => {
       findById: jest.fn().mockResolvedValue(user()),
       update: jest.fn(),
     } as unknown as jest.Mocked<UserRepository>;
-    service = new WalletService(transactions, users, categories);
+    transfers = {
+      create: jest.fn(),
+      findLatestForUser: jest.fn(),
+      softDelete: jest.fn().mockResolvedValue(undefined),
+      existsByMessageId: jest.fn().mockResolvedValue(false),
+      findManyInRange: jest.fn().mockResolvedValue([]),
+      sumByWallet: jest.fn().mockResolvedValue({
+        [Wallet.CASH]: { in: Money.zero(), out: Money.zero() },
+        [Wallet.DIGITAL]: { in: Money.zero(), out: Money.zero() },
+      }),
+      hasAny: jest.fn().mockResolvedValue(false),
+    } as unknown as jest.Mocked<TransferRepository>;
+    service = new WalletService(transactions, users, categories, transfers);
   });
 
   it('computes balances per wallet including the opening balance', async () => {
@@ -134,6 +149,101 @@ describe('WalletService', () => {
   it('skips category lookups for users who have not used wallets', async () => {
     await service.overview('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
     expect(transactions.sumByCategory).not.toHaveBeenCalled();
+  });
+
+  describe('transfers', () => {
+    const entity = (over: Partial<TransferEntity> = {}): TransferEntity => ({
+      id: 't1',
+      userId: 'u1',
+      from: Wallet.DIGITAL,
+      to: Wallet.CASH,
+      amount: Money.fromMajor(100000),
+      note: null,
+      occurredAt: new Date(),
+      messageId: 'm1',
+      deletedAt: null,
+      createdAt: new Date(),
+      ...over,
+    });
+
+    it('moves balance from the source to the destination wallet', async () => {
+      transfers.sumByWallet.mockResolvedValue({
+        [Wallet.CASH]: { in: Money.fromMajor(100000), out: Money.zero() },
+        [Wallet.DIGITAL]: { in: Money.zero(), out: Money.fromMajor(100000) },
+      });
+      const overview = await service.current('u1');
+      const [cash, digital] = overview.lines;
+      expect(cash.balance.toNumber()).toBe(500000); // 400000 + 100000
+      expect(digital.balance.toNumber()).toBe(-150000); // -50000 - 100000
+      expect(overview.total.toNumber()).toBe(350000); // transfers never change the total
+    });
+
+    it('counts a transfer as wallet usage', async () => {
+      transfers.hasAny.mockResolvedValue(true);
+      expect((await service.current('u1')).enabled).toBe(true);
+    });
+
+    it('reports period transfers and their totals in overview()', async () => {
+      users.findById.mockResolvedValue(user({ defaultWallet: Wallet.CASH }));
+      transfers.findManyInRange.mockResolvedValue([entity()]);
+      transfers.sumByWallet.mockResolvedValue({
+        [Wallet.CASH]: { in: Money.fromMajor(100000), out: Money.zero() },
+        [Wallet.DIGITAL]: { in: Money.zero(), out: Money.fromMajor(100000) },
+      });
+
+      const overview = await service.overview(
+        'u1',
+        SummaryPeriod.Month,
+        new Date('2026-07-15T03:00:00Z'),
+        'Asia/Jakarta',
+      );
+      expect(overview.transfers).toHaveLength(1);
+      expect(overview.lines[0].transferIn.toNumber()).toBe(100000);
+      expect(overview.lines[1].transferOut.toNumber()).toBe(100000);
+    });
+
+    it('records a transfer once per chat message', async () => {
+      transfers.create.mockResolvedValue(entity());
+      const now = new Date();
+      const first = await service.transfer(
+        'u1',
+        Wallet.DIGITAL,
+        Wallet.CASH,
+        Money.fromMajor(100000),
+        now,
+        'm1',
+      );
+      expect(first).not.toBeNull();
+      expect(transfers.create).toHaveBeenCalledWith({
+        userId: 'u1',
+        from: Wallet.DIGITAL,
+        to: Wallet.CASH,
+        amount: Money.fromMajor(100000),
+        occurredAt: now,
+        messageId: 'm1',
+      });
+
+      transfers.existsByMessageId.mockResolvedValue(true);
+      const again = await service.transfer(
+        'u1',
+        Wallet.DIGITAL,
+        Wallet.CASH,
+        Money.fromMajor(100000),
+        now,
+        'm1',
+      );
+      expect(again).toBeNull();
+      expect(transfers.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('deletes the latest transfer, or returns null when there is none', async () => {
+      transfers.findLatestForUser.mockResolvedValue(entity());
+      expect((await service.deleteLastTransfer('u1'))?.id).toBe('t1');
+      expect(transfers.softDelete).toHaveBeenCalledWith('t1');
+
+      transfers.findLatestForUser.mockResolvedValue(null);
+      expect(await service.deleteLastTransfer('u1')).toBeNull();
+    });
   });
 
   it('clears wallet settings on reset', async () => {
