@@ -75,10 +75,6 @@ export class IncomingMessageHandler implements OnModuleInit {
       await this.gateway.sendText(message.chatId, reply.text);
       replied = true;
     }
-    for (const followUp of reply.followUps ?? []) {
-      await this.gateway.sendText(message.chatId, followUp);
-      replied = true;
-    }
     if (reply.document) {
       await this.gateway.sendDocument(
         message.chatId,

@@ -2,6 +2,7 @@ import { BudgetService } from 'src/modules/budget/application/budget.service';
 import { CategoryEntity } from 'src/modules/category/domain/category.entity';
 import { ConversationService } from 'src/modules/conversation/application/conversation.service';
 import { ConversationContextEntity } from 'src/modules/conversation/domain/conversation-context.entity';
+import { IntentType } from 'src/modules/parser/domain/parsed-intent';
 import { RuleBasedParser } from 'src/modules/parser/rule-based/rule-based.parser';
 import { CsvExportService } from 'src/modules/report/application/csv-export.service';
 import { ReportService } from 'src/modules/report/application/report.service';
@@ -650,14 +651,10 @@ describe('MessageOrchestrator', () => {
       });
     });
 
-    describe('help', () => {
-      it('sends the basics first and the wallet menu as a follow-up', async () => {
-        const reply = await orchestrator.process(user, msg('help'));
-        const [basics, wallets] = new ReplyBuilder().helpMessages();
-
-        expect(reply.text).toBe(basics);
-        expect(reply.followUps).toEqual([wallets]);
-      });
+    it('answers help with a single message holding the whole menu', async () => {
+      const reply = await orchestrator.process(user, msg('help'));
+      expect(reply.text).toBe(new ReplyBuilder().compose({ type: IntentType.Help, raw: 'help' }));
+      expect(Object.keys(reply)).toEqual(['text']);
     });
 
     describe('transfers', () => {

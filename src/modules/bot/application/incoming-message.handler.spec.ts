@@ -188,14 +188,6 @@ describe('IncomingMessageHandler', () => {
     });
   });
 
-  it('sends follow-up messages after the main reply, in order', async () => {
-    orchestrator.process.mockResolvedValue({ text: 'FIRST', followUps: ['SECOND', 'THIRD'] });
-    await handler.handle(msg({ messageId: 'm1', text: 'help' }));
-
-    expect(gateway.sent.map((s) => s.text).slice(1)).toEqual(['FIRST', 'SECOND', 'THIRD']);
-    expect(audit.actions).toEqual(['MESSAGE_IN', 'MESSAGE_OUT']);
-  });
-
   it('never asks returning users', async () => {
     await handler.handle(msg({ messageId: 'm1' }));
     await handler.handle(msg({ messageId: 'm2' }));
