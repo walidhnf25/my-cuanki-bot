@@ -172,12 +172,15 @@ export class ReplyBuilder {
       '',
       `💰 Pemasukan: ${result.income.format()}`,
       `💸 Pengeluaran: ${result.expense.format()}`,
-      `💵 Saldo: ${result.balance.format()}`,
+      // With wallets, "Saldo" would clash with the all-time wallet balances below.
+      wallets?.enabled
+        ? `💵 Selisih periode: ${result.balance.format()}`
+        : `💵 Saldo: ${result.balance.format()}`,
     ];
 
     if (wallets?.enabled) {
       // Wallet users get the category breakdown split per wallet instead of one list.
-      lines.push('', '👛 *Per dompet:*');
+      lines.push('', '👛 *Per dompet:*', `💰 Total saldo dompet: *${wallets.total.format()}*`);
       for (const l of wallets.lines) {
         lines.push(
           '',

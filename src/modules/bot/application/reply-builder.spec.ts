@@ -97,7 +97,7 @@ describe('ReplyBuilder', () => {
     const overview = {
       enabled: true,
       lines: [line(Wallet.CASH), line(Wallet.DIGITAL)],
-      total: Money.zero(),
+      total: Money.fromMajor(2000),
       transfers: [],
     };
 
@@ -105,6 +105,13 @@ describe('ReplyBuilder', () => {
     expect(replies.summary(summary, { ...overview, enabled: false })).not.toContain('Per dompet');
     const text = replies.summary(summary, overview);
     expect(text).toContain('Per dompet');
+
+    // Period figures are labelled as a difference; the real balance is the wallet total.
+    expect(text).toContain('Selisih periode: Rp50');
+    expect(text).not.toContain('💵 Saldo:');
+    expect(text).toContain('Total saldo dompet: *Rp2.000*');
+    expect(replies.summary(summary)).toContain('💵 Saldo: Rp50');
+    expect(replies.summary(summary, { ...overview, enabled: false })).toContain('💵 Saldo: Rp50');
     expect(text).toContain('Cash: saldo *Rp1.000*');
     expect(text).toContain('⬆️ Masuk Rp0');
     expect(text).toContain('⬇️ Keluar Rp0');
