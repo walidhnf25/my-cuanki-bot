@@ -40,6 +40,16 @@ export class ConversationService {
     });
   }
 
+  /** Ask for the opening balance of the first wallet in `queue`; the rest follow in order. */
+  async awaitOpeningBalance(userId: string, queue: string[], now: Date): Promise<void> {
+    await this.repository.set({
+      userId,
+      state: ConversationState.AWAITING_OPENING_BALANCE,
+      payload: { queue },
+      expiresAt: new Date(now.getTime() + CONTEXT_TTL_MS),
+    });
+  }
+
   /** Remember a complete transaction that still needs a wallet and wait for the reply. */
   async awaitWallet(userId: string, pending: PendingTransaction, now: Date): Promise<void> {
     await this.repository.set({

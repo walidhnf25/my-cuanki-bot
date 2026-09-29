@@ -291,18 +291,34 @@ export class ReplyBuilder {
       return [
         '✅ Dompet diatur: *Cash dan Digital*.',
         'Sebut dompet di pesan (_beli kopi 25rb cash_), atau bot akan bertanya.',
-        '',
-        'Atur saldo awal: _saldo awal cash 200rb_ dan _saldo awal digital 1 juta_',
       ].join('\n');
     }
     const wallet = mode === WalletMode.CASH ? Wallet.CASH : Wallet.DIGITAL;
-    const word = wallet === Wallet.CASH ? 'cash' : 'digital';
     return [
-      `✅ Dompet diatur: *${word === 'cash' ? 'Cash' : 'Digital'} saja*.`,
+      `✅ Dompet diatur: *${wallet === Wallet.CASH ? 'Cash' : 'Digital'} saja*.`,
       `Semua transaksi masuk ke ${WALLET_LABEL[wallet]}.`,
-      '',
-      `Atur saldo awal: _saldo awal ${word} 200rb_`,
     ].join('\n');
+  }
+
+  askOpeningBalanceFor(wallet: Wallet): string {
+    return [
+      `💰 Berapa saldo *${WALLET_LABEL[wallet]}* kamu sekarang?`,
+      'Balas nominal (contoh: _200rb_ atau _1 juta_), atau *lewati* kalau belum mau mengisi.',
+    ].join('\n');
+  }
+
+  openingBalanceAck(wallet: Wallet, amount: Money | null): string {
+    return amount
+      ? `✅ Saldo awal ${WALLET_LABEL[wallet]}: *${amount.format()}*`
+      : `⏭️ Saldo awal ${WALLET_LABEL[wallet]} dilewati.`;
+  }
+
+  openingBalanceDone(): string {
+    return 'Siap! Ketik *saldo* untuk melihat saldo, atau langsung catat transaksi. Saldo awal bisa diubah kapan saja: _saldo awal cash 200rb_ 🚀';
+  }
+
+  openingBalanceRetry(wallet: Wallet): string {
+    return `Balas nominal saldo ${WALLET_LABEL[wallet]} (contoh: _200rb_), atau *lewati*. Ketik *batal* untuk berhenti. 🙂`;
   }
 
   walletModeBlocked(blocked: Wallet): string {

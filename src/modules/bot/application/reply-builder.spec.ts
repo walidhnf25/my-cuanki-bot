@@ -176,6 +176,15 @@ describe('ReplyBuilder', () => {
     expect(replies.walletModeBlocked(Wallet.DIGITAL)).toContain('tidak bisa dinonaktifkan');
   });
 
+  it('words the opening balance questions per wallet', () => {
+    expect(replies.askOpeningBalanceFor(Wallet.CASH)).toContain('Cash');
+    expect(replies.askOpeningBalanceFor(Wallet.DIGITAL)).toContain('lewati');
+    expect(replies.openingBalanceAck(Wallet.CASH, Money.fromMajor(200000))).toContain('Rp200.000');
+    expect(replies.openingBalanceAck(Wallet.DIGITAL, null)).toContain('dilewati');
+    expect(replies.openingBalanceDone()).toContain('saldo');
+    expect(replies.openingBalanceRetry(Wallet.CASH)).toContain('batal');
+  });
+
   it('shows the help menu', () => {
     expect(replies.compose({ type: IntentType.Help, raw: 'help' })).toContain('Menu Cuanki');
   });

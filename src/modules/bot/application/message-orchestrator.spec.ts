@@ -95,6 +95,7 @@ describe('MessageOrchestrator', () => {
       awaitAmount: jest.fn().mockResolvedValue(undefined),
       awaitWallet: jest.fn().mockResolvedValue(undefined),
       awaitWalletMode: jest.fn().mockResolvedValue(undefined),
+      awaitOpeningBalance: jest.fn().mockResolvedValue(undefined),
       awaitDeleteConfirm: jest.fn().mockResolvedValue(undefined),
       awaitResetConfirm: jest.fn().mockResolvedValue(undefined),
       clear: jest.fn().mockResolvedValue(undefined),
@@ -488,6 +489,53 @@ describe('MessageOrchestrator', () => {
         expect(reply.text).toContain('Cash dan Digital');
       });
 
+      it('asks the opening balance of each chosen wallet, cash first', async () => {
+        conversation.getActive.mockResolvedValue(asking);
+        wallets.setMode.mockResolvedValue({ ok: true });
+        const reply = await orchestrator.process(user, msg('3', 'w40'));
+
+        expect(conversation.awaitOpeningBalance).toHaveBeenCalledWith(
+          'u1',
+          [Wallet.CASH, Wallet.DIGITAL],
+          NOW,
+        );
+        expect(reply.text).toContain('Cash dan Digital');
+        expect(reply.text).toContain('Berapa saldo');
+        expect(reply.text).toContain('Cash');
+      });
+
+      it('asks only for the chosen wallet in a one-wallet mode', async () => {
+        conversation.getActive.mockResolvedValue(asking);
+        wallets.setMode.mockResolvedValue({ ok: true });
+        await orchestrator.process(user, msg('2', 'w41'));
+        expect(conversation.awaitOpeningBalance).toHaveBeenCalledWith('u1', [Wallet.DIGITAL], NOW);
+      });
+
+      it('skips wallets that already have an opening balance', async () => {
+        conversation.getActive.mockResolvedValue(asking);
+        wallets.setMode.mockResolvedValue({ ok: true });
+        const withCash = { ...user, openingCash: Money.fromMajor(1000) };
+        await orchestrator.process(withCash, msg('3', 'w42'));
+        expect(conversation.awaitOpeningBalance).toHaveBeenCalledWith('u1', [Wallet.DIGITAL], NOW);
+
+        conversation.awaitOpeningBalance.mockClear();
+        const withBoth = {
+          ...user,
+          openingCash: Money.fromMajor(1),
+          openingDigital: Money.fromMajor(2),
+        };
+        const reply = await orchestrator.process(withBoth, msg('3', 'w43'));
+        expect(conversation.awaitOpeningBalance).not.toHaveBeenCalled();
+        expect(reply.text).not.toContain('Berapa saldo');
+      });
+
+      it('does not ask for balances when the change is refused', async () => {
+        conversation.getActive.mockResolvedValue(asking);
+        wallets.setMode.mockResolvedValue({ ok: false, blocked: Wallet.CASH });
+        await orchestrator.process(user, msg('2', 'w44'));
+        expect(conversation.awaitOpeningBalance).not.toHaveBeenCalled();
+      });
+
       it('explains a refused change', async () => {
         conversation.getActive.mockResolvedValue(asking);
         wallets.setMode.mockResolvedValue({ ok: false, blocked: Wallet.DIGITAL });
@@ -505,6 +553,88 @@ describe('MessageOrchestrator', () => {
 
         const cancelled = await orchestrator.process(user, msg('batal', 'w35'));
         expect(cancelled.text).toContain('dibatalkan');
+      });
+
+      describe('opening balance questions', () => {
+        const asked = (queue: Wallet[]) =>
+          ({
+            state: ConversationState.AWAITING_OPENING_BALANCE,
+            payload: { queue },
+          }) as unknown as ConversationContextEntity;
+
+        it('stores the answer and moves on to the next wallet', async () => {
+          conversation.getActive.mockResolvedValue(asked([Wallet.CASH, Wallet.DIGITAL]));
+          const reply = await orchestrator.process(user, msg('200rb', 'w50'));
+
+          expect(wallets.setOpeningBalance).toHaveBeenCalledWith(
+            'u1',
+            Wallet.CASH,
+            expect.objectContaining({}),
+          );
+          expect(wallets.setOpeningBalance.mock.calls[0][2].toNumber()).toBe(200000);
+          expect(conversation.awaitOpeningBalance).toHaveBeenCalledWith(
+            'u1',
+            [Wallet.DIGITAL],
+            NOW,
+          );
+          expect(reply.text).toContain('Rp200.000');
+          expect(reply.text).toContain('Digital');
+          expect(reply.text).toContain('Berapa saldo');
+        });
+
+        it('finishes after the last wallet', async () => {
+          conversation.getActive.mockResolvedValue(asked([Wallet.DIGITAL]));
+          const reply = await orchestrator.process(user, msg('1 juta', 'w51'));
+
+          expect(wallets.setOpeningBalance.mock.calls[0][1]).toBe(Wallet.DIGITAL);
+          expect(wallets.setOpeningBalance.mock.calls[0][2].toNumber()).toBe(1000000);
+          expect(conversation.clear).toHaveBeenCalledWith('u1');
+          expect(conversation.awaitOpeningBalance).not.toHaveBeenCalled();
+          expect(reply.text).toContain('Siap');
+        });
+
+        it('accepts zero as a real balance', async () => {
+          conversation.getActive.mockResolvedValue(asked([Wallet.CASH]));
+          await orchestrator.process(user, msg('0', 'w52'));
+          expect(wallets.setOpeningBalance.mock.calls[0][2].toNumber()).toBe(0);
+        });
+
+        it.each(['lewati', 'nanti aja', 'belum ada'])(
+          'skips a wallet on "%s" without storing anything',
+          async (text) => {
+            conversation.getActive.mockResolvedValue(asked([Wallet.CASH, Wallet.DIGITAL]));
+            const reply = await orchestrator.process(user, msg(text, 'w53'));
+
+            expect(wallets.setOpeningBalance).not.toHaveBeenCalled();
+            expect(conversation.awaitOpeningBalance).toHaveBeenCalledWith(
+              'u1',
+              [Wallet.DIGITAL],
+              NOW,
+            );
+            expect(reply.text).toContain('dilewati');
+          },
+        );
+
+        it('asks again on an unclear answer and stops on "batal"', async () => {
+          conversation.getActive.mockResolvedValue(asked([Wallet.CASH]));
+          const retry = await orchestrator.process(user, msg('hmm', 'w54'));
+          expect(retry.text).toContain('Balas nominal');
+          expect(wallets.setOpeningBalance).not.toHaveBeenCalled();
+
+          const stop = await orchestrator.process(user, msg('batal', 'w55'));
+          expect(stop.text).toContain('dibatalkan');
+          expect(conversation.clear).toHaveBeenCalledWith('u1');
+        });
+
+        it('drops the questions when the user does something else, not storing a stray amount', async () => {
+          conversation.getActive.mockResolvedValue(asked([Wallet.CASH, Wallet.DIGITAL]));
+          transactions.record.mockResolvedValue(result);
+          const reply = await orchestrator.process(user, msg('beli kopi 25rb cash', 'w56'));
+
+          expect(wallets.setOpeningBalance).not.toHaveBeenCalled();
+          expect(transactions.record).toHaveBeenCalled();
+          expect(reply.text).toContain('Berhasil dicatat');
+        });
       });
 
       it('offers the setup question to a new user unless another question is pending', async () => {

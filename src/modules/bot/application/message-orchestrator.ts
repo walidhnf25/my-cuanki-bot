@@ -15,13 +15,33 @@ import { TransactionService } from 'src/modules/transaction/application/transact
 import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { WalletService } from 'src/modules/wallet/application/wallet.service';
-import { ConversationState, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
+import {
+  activeWallets,
+  ConversationState,
+  TransactionType,
+  Wallet,
+  WalletMode,
+} from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { tokenize } from 'src/shared/utils/string-normalizer';
 import { IncomingMessage } from '../domain/messaging.gateway.port';
 import { ReplyBuilder } from './reply-builder';
 
 const YES_WORDS = ['ya', 'iya', 'yoi', 'yes', 'yup', 'ok', 'oke', 'sip', 'benar', 'y'];
+/** Answers that skip an opening-balance question. */
+const OPENING_SKIP_WORDS = [
+  'lewati',
+  'skip',
+  'nanti',
+  'belum',
+  'tidak',
+  'ga',
+  'gak',
+  'nggak',
+  'engga',
+  'enggak',
+  'kosong',
+];
 const NO_WORDS = ['tidak', 'ga', 'gak', 'nggak', 'engga', 'enggak', 'no', 'batal', 'jangan', 'n'];
 
 /** A reply to send back: text and/or a document (Excel export). Empty = send nothing. */
@@ -86,10 +106,16 @@ export class MessageOrchestrator {
       if (mode !== null) {
         await this.conversation.clear(user.id);
         const result = await this.wallets.setMode(user.id, mode);
+        if (!result.ok) return { text: this.replies.walletModeBlocked(result.blocked) };
+
+        // Then ask for the balance of each chosen wallet that has none yet.
+        const queue = activeWallets(mode).filter(
+          (w) => (w === Wallet.CASH ? user.openingCash : user.openingDigital) === null,
+        );
+        if (queue.length === 0) return { text: this.replies.walletModeSet(mode) };
+        await this.conversation.awaitOpeningBalance(user.id, queue, message.timestamp);
         return {
-          text: result.ok
-            ? this.replies.walletModeSet(mode)
-            : this.replies.walletModeBlocked(result.blocked),
+          text: `${this.replies.walletModeSet(mode)}\n\n${this.replies.askOpeningBalanceFor(queue[0])}`,
         };
       }
       if (this.yesNo(message.text) === 'no') {
@@ -104,6 +130,46 @@ export class MessageOrchestrator {
         return { text: this.replies.walletModeRetry() };
       }
       return null;
+    }
+
+    if (context.state === ConversationState.AWAITING_OPENING_BALANCE) {
+      const [current, ...rest] = ((context.payload as { queue?: Wallet[] } | null)?.queue ??
+        []) as Wallet[];
+      if (!current) return null;
+
+      const tokens = new Set(tokenize(message.text));
+      if (tokens.has('batal')) {
+        await this.conversation.clear(user.id);
+        return { text: this.replies.cancelled() };
+      }
+
+      let amount: Money | null = null;
+      let answered = false;
+      if (intent.type === IntentType.AmountOnly) {
+        amount = intent.amount;
+        answered = true;
+      } else if (tokens.has('nol') || /(^|\s)(rp\.?\s*)?0(\s|$)/i.test(message.text)) {
+        amount = Money.zero();
+        answered = true;
+      } else if (OPENING_SKIP_WORDS.some((w) => tokens.has(w))) {
+        answered = true; // skipped: leave the balance unset
+      }
+
+      if (!answered) {
+        if (intent.type === IntentType.Unknown || intent.type === IntentType.Greeting) {
+          return { text: this.replies.openingBalanceRetry(current) };
+        }
+        return null; // something else entirely: drop the questions
+      }
+
+      if (amount !== null) await this.wallets.setOpeningBalance(user.id, current, amount);
+      const ack = this.replies.openingBalanceAck(current, amount);
+      if (rest.length > 0) {
+        await this.conversation.awaitOpeningBalance(user.id, rest, message.timestamp);
+        return { text: `${ack}\n\n${this.replies.askOpeningBalanceFor(rest[0])}` };
+      }
+      await this.conversation.clear(user.id);
+      return { text: `${ack}\n\n${this.replies.openingBalanceDone()}` };
     }
 
     if (context.state === ConversationState.AWAITING_WALLET) {
