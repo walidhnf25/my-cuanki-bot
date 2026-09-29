@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
+import { BudgetPeriod, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { DEFAULT_TIMEZONE } from 'src/shared/utils/date.util';
 import { Money } from 'src/shared/utils/money';
 import { normalizeText, tokenize } from 'src/shared/utils/string-normalizer';
@@ -10,6 +10,7 @@ import { extractDate } from './date.tokenizer';
 import { extractDateRange } from './date-range.tokenizer';
 import {
   BALANCE_WORDS,
+  BOTH_WALLET_WORDS,
   BUDGET_WORDS,
   CASH_WALLET_WORDS,
   DEFAULT_WORDS,
@@ -24,6 +25,7 @@ import {
   STOPWORDS,
   SUMMARY_WORDS,
   TRANSFER_WORDS,
+  WALLET_SETUP_WORDS,
 } from './keywords';
 
 const WALLET_WORDS = [...CASH_WALLET_WORDS, ...DIGITAL_WALLET_WORDS];
@@ -44,6 +46,18 @@ export class RuleBasedParser extends MessageParser {
 
   parseWallet(text: string): Wallet | null {
     return this.detectWallet(new Set(tokenize(text)));
+  }
+
+  parseWalletMode(text: string): WalletMode | null {
+    const tokens = new Set(tokenize(text));
+    const cash = CASH_WALLET_WORDS.some((w) => tokens.has(w));
+    const digital = DIGITAL_WALLET_WORDS.some((w) => tokens.has(w));
+    if (tokens.has('3') || BOTH_WALLET_WORDS.some((w) => tokens.has(w)) || (cash && digital)) {
+      return WalletMode.BOTH;
+    }
+    if (tokens.has('1') || cash) return WalletMode.CASH;
+    if (tokens.has('2') || digital) return WalletMode.DIGITAL;
+    return null;
   }
 
   private parseSync(input: ParseInput): ParsedIntent {
@@ -68,6 +82,9 @@ export class RuleBasedParser extends MessageParser {
     // deleting the last transaction.
     if (tokens.has('reset') || /\bhapus semua\b|\breset data\b/.test(normalized)) {
       return { type: IntentType.ResetData, raw };
+    }
+    if (tokens.has('dompet') && has(WALLET_SETUP_WORDS)) {
+      return { type: IntentType.SetupWallets, raw };
     }
     if (tokens.has('saldo') && tokens.has('awal')) {
       return {

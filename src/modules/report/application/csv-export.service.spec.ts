@@ -3,7 +3,7 @@ import { CategoryRepository } from 'src/modules/category/domain/category.reposit
 import { SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
-import { TransactionType, Wallet } from 'src/shared/domain/enums';
+import { TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { CsvExportService } from './csv-export.service';
 
@@ -103,6 +103,7 @@ describe('CsvExportService (xlsx)', () => {
 
   describe('with wallets', () => {
     const overview = {
+      mode: WalletMode.BOTH,
       enabled: true,
       lines: [
         {
@@ -207,6 +208,33 @@ describe('CsvExportService (xlsx)', () => {
       expect(sheet.getCell('E20').value).toBe(500000);
     });
 
+    it('for one wallet: no Dompet column or split, but the balance table stays', async () => {
+      transactions.findManyInRange.mockResolvedValue([tx()]);
+      categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
+
+      const out = await service.export(
+        'u1',
+        SummaryPeriod.Month,
+        new Date(),
+        'Asia/Jakarta',
+        undefined,
+        {
+          ...overview,
+          mode: WalletMode.CASH,
+          lines: [overview.lines[0]],
+          total: Money.fromMajor(75000),
+        },
+      );
+      const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
+
+      expect(sheet.getCell('F4').value).toBeNull();
+      // band 8, cards 9-12, wallet table 14-16, ordinary category table 18.
+      expect(sheet.getCell('A14').value).toBe('Per Dompet');
+      expect(sheet.getCell('A15').value).toBe('Cash');
+      expect(sheet.getCell('A18').value).toBe('Pengeluaran per Kategori');
+      expect(sheet.getCell('C18').value).toBe('Jumlah');
+    });
+
     it('omits wallet detail when wallets are not enabled', async () => {
       transactions.findManyInRange.mockResolvedValue([tx()]);
       categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
@@ -217,7 +245,7 @@ describe('CsvExportService (xlsx)', () => {
         new Date(),
         'Asia/Jakarta',
         undefined,
-        { ...overview, enabled: false },
+        { ...overview, mode: null, enabled: false },
       );
       const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
       expect(sheet.getCell('F4').value).toBeNull();

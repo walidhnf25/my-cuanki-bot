@@ -126,6 +126,18 @@ describe('SheetsTransactionRepository', () => {
     expect(all.reduce((s, c) => s + c.total.toNumber(), 0)).toBe(20000);
   });
 
+  it('knows whether a wallet holds transactions, counting blank as cash', async () => {
+    await create();
+    expect(await repo.hasTransactionsInWallet('u1', Wallet.CASH)).toBe(true);
+    expect(await repo.hasTransactionsInWallet('u1', Wallet.DIGITAL)).toBe(false);
+
+    const digital = await create({ wallet: Wallet.DIGITAL });
+    expect(await repo.hasTransactionsInWallet('u1', Wallet.DIGITAL)).toBe(true);
+    await repo.softDelete(digital.id);
+    expect(await repo.hasTransactionsInWallet('u1', Wallet.DIGITAL)).toBe(false);
+    expect(await repo.hasTransactionsInWallet('u2', Wallet.CASH)).toBe(false);
+  });
+
   it('reads a blank wallet cell as null and persists an explicit one', async () => {
     const legacy = await create();
     expect(legacy.wallet).toBeNull();

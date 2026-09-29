@@ -278,7 +278,8 @@ export class CsvExportService {
     const sheet = wb.addWorksheet('Transaksi', {
       views: [{ state: 'frozen', ySplit: TABLE_HEADER_ROW }],
     });
-    const showWallets = wallets?.enabled === true;
+    // The Dompet column and per-wallet category split only make sense with two wallets.
+    const showWallets = wallets?.enabled === true && wallets.lines.length > 1;
     const colCount = showWallets ? 6 : 5;
     const lastCol = showWallets ? 'F' : 'E';
     sheet.columns = [
@@ -402,7 +403,7 @@ export class CsvExportService {
     });
 
     let next = bandRow + cards.length + 2;
-    if (wallets && showWallets) {
+    if (wallets?.enabled) {
       next = addWalletTable(sheet, next, wallets);
       if (wallets.transfers.length > 0) {
         next = addTransferTable(sheet, next, wallets.transfers, tz);

@@ -52,9 +52,26 @@ describe('SheetsClient.ensureSchema', () => {
     expect(update?.body).toEqual({
       valueInputOption: 'RAW',
       data: [
-        { range: 'users!J1', values: [['default_wallet', 'opening_cash', 'opening_digital']] },
+        {
+          range: 'users!J1',
+          values: [['default_wallet', 'opening_cash', 'opening_digital', 'wallet_mode']],
+        },
         { range: 'transactions!N1', values: [['wallet']] },
       ],
+    });
+  });
+
+  it('adds only the newest header to a tab that already has the earlier wallet columns', async () => {
+    const { client, calls } = makeClient({
+      users: SHEET_COLUMNS.users.slice(0, 12) as unknown as string[],
+    });
+
+    await client.ensureSchema();
+
+    const update = calls.find((c) => c.path === '/values:batchUpdate');
+    expect(update?.body).toEqual({
+      valueInputOption: 'RAW',
+      data: [{ range: 'users!M1', values: [['wallet_mode']] }],
     });
   });
 

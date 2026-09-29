@@ -2,7 +2,7 @@ import dayjs from 'dayjs';
 import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc';
 import { DEFAULT_TIMEZONE } from 'src/shared/utils/date.util';
-import { Wallet } from 'src/shared/domain/enums';
+import { Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { Cell } from './sheets.schema';
 
@@ -48,6 +48,11 @@ export function cellMoney(value: Cell | undefined): Money {
 export function cellWallet(value: Cell | undefined): Wallet | null {
   const s = cellString(value)?.toUpperCase();
   return s === Wallet.CASH || s === Wallet.DIGITAL ? s : null;
+}
+
+export function cellWalletMode(value: Cell | undefined): WalletMode | null {
+  const s = cellString(value)?.toUpperCase();
+  return s === WalletMode.CASH || s === WalletMode.DIGITAL || s === WalletMode.BOTH ? s : null;
 }
 
 export function cellOptionalMoney(value: Cell | undefined): Money | null {

@@ -44,6 +44,9 @@ export abstract class TransactionRepository {
    */
   abstract sumByWallet(userId: string, range?: DateRange): Promise<Record<Wallet, TypedTotals>>;
 
+  /** True when any non-deleted transaction sits in the wallet (blank counts as CASH). */
+  abstract hasTransactionsInWallet(userId: string, wallet: Wallet): Promise<boolean>;
+
   /** True once the user has at least one transaction with an explicit wallet. */
   abstract hasExplicitWallet(userId: string): Promise<boolean>;
 

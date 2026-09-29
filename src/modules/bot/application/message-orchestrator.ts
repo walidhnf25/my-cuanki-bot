@@ -15,7 +15,7 @@ import { TransactionService } from 'src/modules/transaction/application/transact
 import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { WalletService } from 'src/modules/wallet/application/wallet.service';
-import { ConversationState, TransactionType } from 'src/shared/domain/enums';
+import { ConversationState, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { tokenize } from 'src/shared/utils/string-normalizer';
 import { IncomingMessage } from '../domain/messaging.gateway.port';
@@ -77,6 +77,31 @@ export class MessageOrchestrator {
       }
       if (intent.type === IntentType.Unknown || intent.type === IntentType.Greeting) {
         return { text: this.replies.askAmount() };
+      }
+      return null;
+    }
+
+    if (context.state === ConversationState.AWAITING_WALLET_MODE) {
+      const mode = this.parser.parseWalletMode(message.text);
+      if (mode !== null) {
+        await this.conversation.clear(user.id);
+        const result = await this.wallets.setMode(user.id, mode);
+        return {
+          text: result.ok
+            ? this.replies.walletModeSet(mode)
+            : this.replies.walletModeBlocked(result.blocked),
+        };
+      }
+      if (this.yesNo(message.text) === 'no') {
+        await this.conversation.clear(user.id);
+        return { text: this.replies.cancelled() };
+      }
+      if (
+        intent.type === IntentType.Unknown ||
+        intent.type === IntentType.Greeting ||
+        intent.type === IntentType.AmountOnly
+      ) {
+        return { text: this.replies.walletModeRetry() };
       }
       return null;
     }
@@ -194,7 +219,10 @@ export class MessageOrchestrator {
       }
 
       case IntentType.EditTransaction: {
-        const result = await this.transactions.editLast(user.id, intent);
+        const result = await this.transactions.editLast(
+          user.id,
+          this.onlyWallet(user) ? { ...intent, wallet: null } : intent,
+        );
         return {
           text: result ? this.replies.edited(result, user.timezone) : this.replies.nothingToEdit(),
         };
@@ -262,7 +290,13 @@ export class MessageOrchestrator {
         };
       }
 
+      case IntentType.SetupWallets: {
+        await this.conversation.awaitWalletMode(user.id, now);
+        return { text: this.replies.askWalletMode() };
+      }
+
       case IntentType.Transfer: {
+        if (this.onlyWallet(user)) return { text: this.replies.transferNeedsBoth() };
         if (intent.amount === null) return { text: this.replies.askTransferAmount() };
         if (intent.from === null || intent.to === null) {
           return { text: this.replies.askTransferDirection() };
@@ -296,12 +330,18 @@ export class MessageOrchestrator {
         if (intent.wallet === null || intent.amount === null) {
           return { text: this.replies.askOpeningBalance() };
         }
+        const only = this.onlyWallet(user);
+        if (only !== null && only !== intent.wallet) {
+          return { text: this.replies.inactiveWallet(intent.wallet) };
+        }
         await this.wallets.setOpeningBalance(user.id, intent.wallet, intent.amount);
         return { text: this.replies.openingBalanceSet(intent.wallet, intent.amount) };
       }
 
       case IntentType.SetDefaultWallet: {
         if (intent.wallet === null) return { text: this.replies.askDefaultWallet() };
+        const only = this.onlyWallet(user);
+        if (only !== null) return { text: this.replies.defaultNotNeeded(only) };
         await this.wallets.setDefault(user.id, intent.wallet);
         return { text: this.replies.defaultWalletSet(intent.wallet) };
       }
@@ -322,15 +362,17 @@ export class MessageOrchestrator {
     messageId: string,
     now: Date,
   ): Promise<OutgoingReply> {
-    // A wallet named in the message wins; otherwise fall back to the user's default.
-    const wallet = intent.wallet ?? user.defaultWallet;
+    // One-wallet users always use that wallet (any other wallet word is ignored).
+    // Otherwise a wallet named in the message wins, then the user's default.
+    const only = this.onlyWallet(user);
+    const wallet = only ?? intent.wallet ?? user.defaultWallet;
 
     // Users who already use wallets but never chose a default get asked, so the
     // transaction lands in the right one. Everyone else keeps the silent behaviour.
     if (
       wallet === null &&
       intent.amount !== null &&
-      (await this.wallets.current(user.id)).enabled
+      (user.walletMode === WalletMode.BOTH || (await this.wallets.current(user.id)).enabled)
     ) {
       await this.conversation.awaitWallet(
         user.id,
@@ -386,6 +428,23 @@ export class MessageOrchestrator {
       wallet: pending.wallet ?? null,
     };
     return this.recordAndReply(user, intent, message.messageId, message.timestamp);
+  }
+
+  /** The single active wallet for one-wallet users, or null when both / undecided. */
+  private onlyWallet(user: UserEntity): Wallet | null {
+    if (user.walletMode === WalletMode.CASH) return Wallet.CASH;
+    if (user.walletMode === WalletMode.DIGITAL) return Wallet.DIGITAL;
+    return null;
+  }
+
+  /**
+   * After a brand-new user's first reply, ask which wallets they want. Skipped when
+   * that reply left a follow-up question open (one pending question per user).
+   */
+  async walletSetupPrompt(user: UserEntity, now: Date): Promise<string | null> {
+    if (await this.conversation.getActive(user.id, now)) return null;
+    await this.conversation.awaitWalletMode(user.id, now);
+    return this.replies.askWalletMode();
   }
 
   private yesNo(text: string): 'yes' | 'no' | null {

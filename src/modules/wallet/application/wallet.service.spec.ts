@@ -5,7 +5,7 @@ import { TransferRepository } from '../domain/transfer.repository';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
-import { Wallet } from 'src/shared/domain/enums';
+import { Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { WalletService } from './wallet.service';
 
@@ -20,6 +20,7 @@ function user(over: Partial<UserEntity> = {}): UserEntity {
     currency: 'IDR',
     timezone: 'Asia/Jakarta',
     isOnboarded: true,
+    walletMode: null,
     defaultWallet: null,
     openingCash: null,
     openingDigital: null,
@@ -44,6 +45,7 @@ describe('WalletService', () => {
       }),
       hasExplicitWallet: jest.fn().mockResolvedValue(false),
       sumByCategory: jest.fn().mockResolvedValue([]),
+      hasTransactionsInWallet: jest.fn().mockResolvedValue(false),
     } as unknown as jest.Mocked<TransactionRepository>;
     categories = {
       findById: jest.fn().mockResolvedValue({ name: 'Makanan', icon: '🍜' }),
@@ -149,6 +151,106 @@ describe('WalletService', () => {
   it('skips category lookups for users who have not used wallets', async () => {
     await service.overview('u1', SummaryPeriod.Month, new Date(), 'Asia/Jakarta');
     expect(transactions.sumByCategory).not.toHaveBeenCalled();
+  });
+
+  describe('wallet mode', () => {
+    it('is off for a user who never chose or used wallets', async () => {
+      const overview = await service.current('u1');
+      expect(overview.mode).toBeNull();
+      expect(overview.enabled).toBe(false);
+      expect(overview.lines).toHaveLength(2);
+    });
+
+    it('treats a legacy user who used wallets as BOTH', async () => {
+      users.findById.mockResolvedValue(user({ defaultWallet: Wallet.CASH }));
+      expect((await service.current('u1')).mode).toBe(WalletMode.BOTH);
+    });
+
+    it('is on as soon as a mode is chosen, even with no wallet data', async () => {
+      users.findById.mockResolvedValue(user({ walletMode: WalletMode.DIGITAL }));
+      const overview = await service.current('u1');
+      expect(overview.enabled).toBe(true);
+      expect(overview.mode).toBe(WalletMode.DIGITAL);
+    });
+
+    it('only reports the active wallet in a one-wallet mode', async () => {
+      users.findById.mockResolvedValue(user({ walletMode: WalletMode.CASH }));
+      const overview = await service.current('u1');
+      expect(overview.lines.map((l) => l.wallet)).toEqual([Wallet.CASH]);
+      expect(overview.total.toNumber()).toBe(400000);
+    });
+
+    it('accepts any mode for a user without wallet data', async () => {
+      expect(await service.setMode('u1', WalletMode.CASH)).toEqual({ ok: true });
+      expect(users.update).toHaveBeenLastCalledWith('u1', {
+        walletMode: WalletMode.CASH,
+        defaultWallet: Wallet.CASH,
+      });
+      expect(await service.setMode('u1', WalletMode.DIGITAL)).toEqual({ ok: true });
+      expect(users.update).toHaveBeenLastCalledWith('u1', {
+        walletMode: WalletMode.DIGITAL,
+        defaultWallet: Wallet.DIGITAL,
+      });
+      expect(await service.setMode('u1', WalletMode.BOTH)).toEqual({ ok: true });
+    });
+
+    it('refuses to turn off a wallet that has transactions', async () => {
+      transactions.hasTransactionsInWallet.mockImplementation((_u, wallet) =>
+        Promise.resolve(wallet === Wallet.DIGITAL),
+      );
+      expect(await service.setMode('u1', WalletMode.CASH)).toEqual({
+        ok: false,
+        blocked: Wallet.DIGITAL,
+      });
+      expect(users.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to turn off cash when legacy (blank-wallet) transactions exist', async () => {
+      transactions.hasTransactionsInWallet.mockImplementation((_u, wallet) =>
+        Promise.resolve(wallet === Wallet.CASH),
+      );
+      expect(await service.setMode('u1', WalletMode.DIGITAL)).toEqual({
+        ok: false,
+        blocked: Wallet.CASH,
+      });
+    });
+
+    it('refuses to turn off a wallet with a non-zero opening balance or a transfer', async () => {
+      users.findById.mockResolvedValue(user({ openingDigital: Money.fromMajor(1) }));
+      expect((await service.setMode('u1', WalletMode.CASH)).ok).toBe(false);
+
+      users.findById.mockResolvedValue(user());
+      transfers.sumByWallet.mockResolvedValue({
+        [Wallet.CASH]: { in: Money.zero(), out: Money.zero() },
+        [Wallet.DIGITAL]: { in: Money.fromMajor(5), out: Money.zero() },
+      });
+      expect((await service.setMode('u1', WalletMode.CASH)).ok).toBe(false);
+    });
+
+    it('does not count a zero opening balance as data', async () => {
+      users.findById.mockResolvedValue(user({ openingDigital: Money.zero() }));
+      expect((await service.setMode('u1', WalletMode.CASH)).ok).toBe(true);
+    });
+
+    it('forgets a single-wallet default when going back to both, but keeps a real one', async () => {
+      users.findById.mockResolvedValue(
+        user({ walletMode: WalletMode.CASH, defaultWallet: Wallet.CASH }),
+      );
+      await service.setMode('u1', WalletMode.BOTH);
+      expect(users.update).toHaveBeenLastCalledWith('u1', {
+        walletMode: WalletMode.BOTH,
+        defaultWallet: null,
+      });
+
+      users.findById.mockResolvedValue(
+        user({ walletMode: WalletMode.BOTH, defaultWallet: Wallet.DIGITAL }),
+      );
+      await service.setMode('u1', WalletMode.BOTH);
+      expect(users.update).toHaveBeenLastCalledWith('u1', {
+        walletMode: WalletMode.BOTH,
+        defaultWallet: Wallet.DIGITAL,
+      });
+    });
   });
 
   describe('transfers', () => {

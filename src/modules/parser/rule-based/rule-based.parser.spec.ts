@@ -1,5 +1,5 @@
 import { toIsoDate } from 'src/shared/utils/date.util';
-import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
+import { BudgetPeriod, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { IntentType, ParsedIntent, SummaryPeriod } from '../domain/parsed-intent';
 import { RuleBasedParser } from './rule-based.parser';
 
@@ -224,6 +224,41 @@ describe('RuleBasedParser', () => {
       if (intent.type !== IntentType.EditTransaction) return;
       expect(intent.wallet).toBe(Wallet.DIGITAL);
       expect(intent.keywords).toEqual([]);
+    });
+  });
+
+  describe('wallet setup', () => {
+    it.each(['atur dompet', 'pilih dompet', 'setup dompet', 'pengaturan dompet'])(
+      'starts the setup question on "%s"',
+      async (text) => {
+        expect((await parse(text)).type).toBe(IntentType.SetupWallets);
+      },
+    );
+
+    it('does not treat other wallet commands as setup', async () => {
+      expect((await parse('default digital')).type).toBe(IntentType.SetDefaultWallet);
+      expect((await parse('saldo awal cash 200rb')).type).toBe(IntentType.SetOpeningBalance);
+      expect((await parse('atur budget makan 2 juta')).type).toBe(IntentType.SetBudget);
+    });
+
+    it.each([
+      ['1', WalletMode.CASH],
+      ['cash saja', WalletMode.CASH],
+      ['tunai', WalletMode.CASH],
+      ['2', WalletMode.DIGITAL],
+      ['digital', WalletMode.DIGITAL],
+      ['qris saja', WalletMode.DIGITAL],
+      ['3', WalletMode.BOTH],
+      ['keduanya', WalletMode.BOTH],
+      ['cash dan digital', WalletMode.BOTH],
+      ['digital dan cash', WalletMode.BOTH],
+    ])('reads "%s" as the wallet answer %s', (text, mode) => {
+      expect(parser.parseWalletMode(text)).toBe(mode);
+    });
+
+    it('returns null for an unclear answer', () => {
+      expect(parser.parseWalletMode('hmm')).toBeNull();
+      expect(parser.parseWalletMode('5')).toBeNull();
     });
   });
 

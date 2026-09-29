@@ -1,4 +1,4 @@
-import { TransactionType, Wallet } from 'src/shared/domain/enums';
+import { TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { IntentType, ParsedIntent } from 'src/modules/parser/domain/parsed-intent';
 import { ReplyBuilder } from './reply-builder';
@@ -95,6 +95,7 @@ describe('ReplyBuilder', () => {
           : [{ name: 'Transportasi', icon: '🚗', total: Money.fromMajor(20000) }],
     });
     const overview = {
+      mode: WalletMode.BOTH,
       enabled: true,
       lines: [line(Wallet.CASH), line(Wallet.DIGITAL)],
       total: Money.fromMajor(2000),
@@ -102,7 +103,9 @@ describe('ReplyBuilder', () => {
     };
 
     expect(replies.summary(summary)).not.toContain('Per dompet');
-    expect(replies.summary(summary, { ...overview, enabled: false })).not.toContain('Per dompet');
+    expect(replies.summary(summary, { ...overview, mode: null, enabled: false })).not.toContain(
+      'Per dompet',
+    );
     const text = replies.summary(summary, overview);
     expect(text).toContain('Per dompet');
 
@@ -111,7 +114,9 @@ describe('ReplyBuilder', () => {
     expect(text).not.toContain('💵 Saldo:');
     expect(text).toContain('Total saldo dompet: *Rp2.000*');
     expect(replies.summary(summary)).toContain('💵 Saldo: Rp50');
-    expect(replies.summary(summary, { ...overview, enabled: false })).toContain('💵 Saldo: Rp50');
+    expect(replies.summary(summary, { ...overview, mode: null, enabled: false })).toContain(
+      '💵 Saldo: Rp50',
+    );
     expect(text).toContain('Cash: saldo *Rp1.000*');
     expect(text).toContain('⬆️ Masuk Rp0');
     expect(text).toContain('⬇️ Keluar Rp0');
@@ -126,6 +131,49 @@ describe('ReplyBuilder', () => {
     // A transfer line appears only for wallets that moved money.
     expect(text.match(/🔁 Transfer/g)).toHaveLength(1);
     expect(text).toContain('🔁 Transfer: masuk Rp500 · keluar Rp0');
+  });
+
+  it('summarises a one-wallet user with the normal category list and that wallet balance', () => {
+    const summary = {
+      periodLabel: 'Bulan Ini',
+      range: { start: new Date(), end: new Date() },
+      income: Money.fromMajor(100),
+      expense: Money.fromMajor(50),
+      balance: Money.fromMajor(50),
+      categories: [{ name: 'Makanan', icon: '🍜', total: Money.fromMajor(50) }],
+    };
+    const overview = {
+      mode: WalletMode.CASH,
+      enabled: true,
+      lines: [
+        {
+          wallet: Wallet.CASH,
+          income: Money.zero(),
+          expense: Money.zero(),
+          transferIn: Money.zero(),
+          transferOut: Money.zero(),
+          balance: Money.fromMajor(29000),
+          categories: [],
+        },
+      ],
+      total: Money.fromMajor(29000),
+      transfers: [],
+    };
+
+    const text = replies.summary(summary, overview);
+    expect(text).not.toContain('Per dompet');
+    expect(text).toContain('Makanan: Rp50');
+    expect(text).toContain('Saldo 💵 Cash: *Rp29.000*');
+  });
+
+  it('describes each wallet mode and explains a refused change', () => {
+    expect(replies.askWalletMode()).toContain('Cash saja');
+    expect(replies.askWalletMode()).toContain('Digital saja');
+    expect(replies.askWalletMode()).toContain('Cash dan Digital');
+    expect(replies.walletModeSet(WalletMode.CASH)).toContain('Cash saja');
+    expect(replies.walletModeSet(WalletMode.DIGITAL)).toContain('Digital saja');
+    expect(replies.walletModeSet(WalletMode.BOTH)).toContain('Cash dan Digital');
+    expect(replies.walletModeBlocked(Wallet.DIGITAL)).toContain('tidak bisa dinonaktifkan');
   });
 
   it('shows the help menu', () => {

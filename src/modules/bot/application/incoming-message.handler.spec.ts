@@ -42,6 +42,7 @@ class StubUserRepository extends UserRepository {
       currency: 'IDR',
       timezone: 'Asia/Jakarta',
       isOnboarded: false,
+      walletMode: null,
       defaultWallet: null,
       openingCash: null,
       openingDigital: null,
@@ -83,14 +84,17 @@ describe('IncomingMessageHandler', () => {
   let gateway: FakeGateway;
   let users: StubUserRepository;
   let audit: StubAuditRepository;
-  let orchestrator: { process: jest.Mock };
+  let orchestrator: { process: jest.Mock; walletSetupPrompt: jest.Mock };
   let handler: IncomingMessageHandler;
 
   beforeEach(() => {
     gateway = new FakeGateway();
     users = new StubUserRepository();
     audit = new StubAuditRepository();
-    orchestrator = { process: jest.fn().mockResolvedValue({ text: 'ROUTED_REPLY' }) };
+    orchestrator = {
+      process: jest.fn().mockResolvedValue({ text: 'ROUTED_REPLY' }),
+      walletSetupPrompt: jest.fn().mockResolvedValue(null),
+    };
     handler = new IncomingMessageHandler(
       gateway,
       users,
@@ -107,6 +111,29 @@ describe('IncomingMessageHandler', () => {
     expect(gateway.sent[0].text).toContain('Selamat datang');
     expect(gateway.sent[1].text).toBe('ROUTED_REPLY');
     expect(audit.actions).toEqual(['MESSAGE_IN', 'MESSAGE_OUT']);
+  });
+
+  it('asks a new user which wallets to use after the first reply', async () => {
+    orchestrator.walletSetupPrompt.mockResolvedValue('WALLET_QUESTION');
+    await handler.handle(msg({ messageId: 'm1' }));
+
+    expect(gateway.sent.map((s) => s.text)).toEqual([
+      expect.stringContaining('Selamat datang'),
+      'ROUTED_REPLY',
+      'WALLET_QUESTION',
+    ]);
+  });
+
+  it('skips the wallet question when a follow-up is already pending', async () => {
+    orchestrator.walletSetupPrompt.mockResolvedValue(null);
+    await handler.handle(msg({ messageId: 'm1' }));
+    expect(gateway.sent).toHaveLength(2);
+  });
+
+  it('never asks returning users', async () => {
+    await handler.handle(msg({ messageId: 'm1' }));
+    await handler.handle(msg({ messageId: 'm2' }));
+    expect(orchestrator.walletSetupPrompt).toHaveBeenCalledTimes(1);
   });
 
   it('sends nothing (and no MESSAGE_OUT) when the orchestrator returns empty', async () => {

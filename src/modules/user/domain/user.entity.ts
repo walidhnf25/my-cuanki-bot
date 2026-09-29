@@ -1,4 +1,4 @@
-import { Wallet } from 'src/shared/domain/enums';
+import { Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 
 /** Domain representation of an application user (framework/persistence agnostic). */
@@ -12,6 +12,8 @@ export interface UserEntity {
   currency: string;
   timezone: string;
   isOnboarded: boolean;
+  /** Wallets in use; null = never chosen (legacy behaviour, see WalletMode). */
+  walletMode: WalletMode | null;
   /** Wallet used when a message doesn't name one; null = never chosen (behaves as CASH). */
   defaultWallet: Wallet | null;
   /** Balance held before the first recorded transaction; null = not set. */
@@ -36,4 +38,5 @@ export interface UpdateUserInput {
   defaultWallet?: Wallet | null;
   openingCash?: Money | null;
   openingDigital?: Money | null;
+  walletMode?: WalletMode | null;
 }

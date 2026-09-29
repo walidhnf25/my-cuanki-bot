@@ -6,7 +6,7 @@ import { SummaryResult } from 'src/modules/report/domain/summary.types';
 import { TransactionResult } from 'src/modules/transaction/application/transaction.service';
 import { WalletOverview } from 'src/modules/wallet/application/wallet.service';
 import { TransferEntity } from 'src/modules/wallet/domain/transfer.entity';
-import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
+import { BudgetPeriod, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
 import { Money } from 'src/shared/utils/money';
 
@@ -178,7 +178,12 @@ export class ReplyBuilder {
         : `💵 Saldo: ${result.balance.format()}`,
     ];
 
-    if (wallets?.enabled) {
+    // Two wallets: category breakdown is split per wallet. One wallet: the normal list
+    // plus that wallet's balance.
+    const split = wallets !== undefined && wallets.enabled && wallets.lines.length > 1;
+    const single = wallets !== undefined && wallets.enabled && wallets.lines.length === 1;
+
+    if (split) {
       // Wallet users get the category breakdown split per wallet instead of one list.
       lines.push('', '👛 *Per dompet:*', `💰 Total saldo dompet: *${wallets.total.format()}*`);
       for (const l of wallets.lines) {
@@ -207,6 +212,11 @@ export class ReplyBuilder {
       }
     } else {
       lines.push('', '_Belum ada pengeluaran pada periode ini._');
+    }
+
+    if (single) {
+      const only = wallets.lines[0];
+      lines.push('', `👛 Saldo ${WALLET_LABEL[only.wallet]}: *${only.balance.format()}*`);
     }
 
     return lines.join('\n');
@@ -258,6 +268,60 @@ export class ReplyBuilder {
 
   askTransferDirection(): string {
     return 'Sebutkan arahnya. Contoh: _pindah 500rb dari digital ke cash_';
+  }
+
+  askWalletMode(): string {
+    return [
+      '👛 *Mau pakai dompet yang mana?*',
+      '',
+      '1️⃣ Cash saja',
+      '2️⃣ Digital saja (transfer, QRIS, e-wallet)',
+      '3️⃣ Cash dan Digital',
+      '',
+      'Balas *1*, *2*, atau *3*. Bisa diubah lagi dengan _atur dompet_.',
+    ].join('\n');
+  }
+
+  walletModeRetry(): string {
+    return 'Balas *1* (Cash), *2* (Digital), atau *3* (keduanya). Ketik *batal* untuk membatalkan. 🙂';
+  }
+
+  walletModeSet(mode: WalletMode): string {
+    if (mode === WalletMode.BOTH) {
+      return [
+        '✅ Dompet diatur: *Cash dan Digital*.',
+        'Sebut dompet di pesan (_beli kopi 25rb cash_), atau bot akan bertanya.',
+        '',
+        'Atur saldo awal: _saldo awal cash 200rb_ dan _saldo awal digital 1 juta_',
+      ].join('\n');
+    }
+    const wallet = mode === WalletMode.CASH ? Wallet.CASH : Wallet.DIGITAL;
+    const word = wallet === Wallet.CASH ? 'cash' : 'digital';
+    return [
+      `✅ Dompet diatur: *${word === 'cash' ? 'Cash' : 'Digital'} saja*.`,
+      `Semua transaksi masuk ke ${WALLET_LABEL[wallet]}.`,
+      '',
+      `Atur saldo awal: _saldo awal ${word} 200rb_`,
+    ].join('\n');
+  }
+
+  walletModeBlocked(blocked: Wallet): string {
+    return [
+      `⚠️ Dompet ${WALLET_LABEL[blocked]} sudah punya transaksi atau saldo, jadi tidak bisa dinonaktifkan.`,
+      'Pilih *Cash dan Digital*, atau ketik _atur dompet_ untuk memilih lagi.',
+    ].join('\n');
+  }
+
+  inactiveWallet(wallet: Wallet): string {
+    return `Dompet ${WALLET_LABEL[wallet]} tidak aktif. Ketik _atur dompet_ untuk mengubah.`;
+  }
+
+  defaultNotNeeded(only: Wallet): string {
+    return `Kamu hanya memakai dompet ${WALLET_LABEL[only]}, jadi default tidak perlu diatur. Ketik _atur dompet_ untuk mengubah.`;
+  }
+
+  transferNeedsBoth(): string {
+    return 'Transfer antar dompet hanya tersedia jika memakai Cash dan Digital. Ketik _atur dompet_ untuk mengubah.';
   }
 
   transferSameWallet(): string {
@@ -359,6 +423,7 @@ export class ReplyBuilder {
       '',
       '*👛 Saldo & pengaturan dompet:*',
       '• _saldo_ (saldo cash dan digital)',
+      '• _atur dompet_ (pilih cash saja, digital saja, atau keduanya)',
       '• _saldo awal cash 200rb_',
       '• _default digital_ (dompet jika tidak disebut)',
       '• _edit ke digital_ (ubah dompet transaksi terakhir)',

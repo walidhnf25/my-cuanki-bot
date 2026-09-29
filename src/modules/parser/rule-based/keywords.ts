@@ -62,6 +62,12 @@ export const DIGITAL_WALLET_WORDS = [
 /** Verbs for moving money between wallets ("pindah 500rb dari digital ke cash"). */
 export const TRANSFER_WORDS = ['pindah', 'pindahkan', 'pindahin', 'mutasi'];
 
+/** "atur dompet" starts the wallet setup question. */
+export const WALLET_SETUP_WORDS = ['atur', 'setup', 'setting', 'pengaturan', 'pilih'];
+
+/** Words meaning "both wallets" in an answer to the setup question. */
+export const BOTH_WALLET_WORDS = ['keduanya', 'kedua', 'dua', 'semua', 'both'];
+
 export const BALANCE_WORDS = ['saldo'];
 
 export const DEFAULT_WORDS = ['default', 'utama', 'standar'];

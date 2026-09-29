@@ -77,6 +77,7 @@ describe('TransactionService', () => {
       sumByCategory: jest.fn(),
       sumByWallet: jest.fn(),
       hasExplicitWallet: jest.fn(),
+      hasTransactionsInWallet: jest.fn(),
     };
     categories = { findById: jest.fn() } as unknown as jest.Mocked<CategoryRepository>;
     resolver = { resolve: jest.fn() } as unknown as jest.Mocked<CategoryResolver>;

@@ -17,6 +17,7 @@ export const SHEET_COLUMNS = {
     'default_wallet',
     'opening_cash',
     'opening_digital',
+    'wallet_mode',
   ],
   categories: ['id', 'user_id', 'name', 'type', 'icon', 'is_system', 'keywords', 'created_at'],
   transactions: [

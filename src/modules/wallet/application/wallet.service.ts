@@ -6,7 +6,7 @@ import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-i
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { UserRepository } from 'src/modules/user/domain/user.repository';
-import { TransactionType, Wallet } from 'src/shared/domain/enums';
+import { activeWallets, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { TransferEntity } from '../domain/transfer.entity';
 import { TransferRepository } from '../domain/transfer.repository';
@@ -26,7 +26,9 @@ export interface WalletLine {
 }
 
 export interface WalletOverview {
-  /** True once the user has used wallets; reports only show wallet detail then. */
+  /** Wallets in use; null while the user has not chosen and never used a wallet feature. */
+  mode: WalletMode | null;
+  /** True once the user has wallets on; reports only show wallet detail then. */
   enabled: boolean;
   lines: WalletLine[];
   total: Money;
@@ -130,6 +132,49 @@ export class WalletService {
     return latest;
   }
 
+  /**
+   * Choose which wallets to use. Turning a wallet off is refused while it still has
+   * transactions, transfers or a balance, so no money silently disappears.
+   */
+  async setMode(
+    userId: string,
+    mode: WalletMode,
+  ): Promise<{ ok: true } | { ok: false; blocked: Wallet }> {
+    const user = await this.users.findById(userId);
+    if (!user) throw new Error(`User ${userId} not found`);
+
+    const active = activeWallets(mode);
+    for (const wallet of WALLETS) {
+      if (!active.includes(wallet) && (await this.inUse(user, wallet))) {
+        return { ok: false, blocked: wallet };
+      }
+    }
+
+    const wasSingle = user.walletMode === WalletMode.CASH || user.walletMode === WalletMode.DIGITAL;
+    await this.users.update(userId, {
+      walletMode: mode,
+      // One wallet: it is the default. Back to both: forget the old single default so
+      // the bot asks again (unless the user already used both).
+      defaultWallet:
+        mode === WalletMode.BOTH
+          ? wasSingle
+            ? null
+            : user.defaultWallet
+          : mode === WalletMode.CASH
+            ? Wallet.CASH
+            : Wallet.DIGITAL,
+    });
+    return { ok: true };
+  }
+
+  private async inUse(user: UserEntity, wallet: Wallet): Promise<boolean> {
+    const opening0 = opening(user, wallet);
+    if (opening0 !== null && !opening0.isZero()) return true;
+    if (await this.transactions.hasTransactionsInWallet(user.id, wallet)) return true;
+    const moved = (await this.transfers.sumByWallet(user.id))[wallet];
+    return !moved.in.isZero() || !moved.out.isZero();
+  }
+
   async setOpeningBalance(userId: string, wallet: Wallet, amount: Money): Promise<UserEntity> {
     return this.users.update(
       userId,
@@ -158,7 +203,17 @@ export class WalletService {
     const moved = await this.transfers.sumByWallet(userId);
     const movedShown = range ? await this.transfers.sumByWallet(userId, range) : moved;
 
-    const lines: WalletLine[] = WALLETS.map((wallet) => ({
+    const implicit = user
+      ? user.defaultWallet !== null ||
+        user.openingCash !== null ||
+        user.openingDigital !== null ||
+        (await this.transactions.hasExplicitWallet(userId)) ||
+        (await this.transfers.hasAny(userId))
+      : false;
+    // Legacy users (no stored mode) are on once they have used a wallet feature.
+    const mode = user?.walletMode ?? (implicit ? WalletMode.BOTH : null);
+
+    const lines: WalletLine[] = activeWallets(mode).map((wallet) => ({
       wallet,
       income: shown[wallet].income,
       expense: shown[wallet].expense,
@@ -172,16 +227,9 @@ export class WalletService {
         .subtract(moved[wallet].out),
     }));
 
-    const enabled = user
-      ? user.defaultWallet !== null ||
-        user.openingCash !== null ||
-        user.openingDigital !== null ||
-        (await this.transactions.hasExplicitWallet(userId)) ||
-        (await this.transfers.hasAny(userId))
-      : false;
-
     return {
-      enabled,
+      mode,
+      enabled: mode !== null,
       lines,
       total: lines.reduce((sum, l) => sum.add(l.balance), Money.zero()),
       transfers: [],

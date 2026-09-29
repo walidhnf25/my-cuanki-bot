@@ -67,5 +67,11 @@ export class IncomingMessageHandler implements OnModuleInit {
     if (replied) {
       await this.audit.record({ userId: user.id, action: 'MESSAGE_OUT' });
     }
+
+    // New users choose their wallets right after their first reply.
+    if (created) {
+      const prompt = await this.orchestrator.walletSetupPrompt(user, message.timestamp);
+      if (prompt) await this.gateway.sendText(message.chatId, prompt);
+    }
   }
 }

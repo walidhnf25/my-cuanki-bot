@@ -12,7 +12,7 @@ import {
 import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
-import { ConversationState, TransactionType, Wallet } from 'src/shared/domain/enums';
+import { ConversationState, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { IncomingMessage } from '../domain/messaging.gateway.port';
 import { WalletService } from 'src/modules/wallet/application/wallet.service';
@@ -29,6 +29,7 @@ const user: UserEntity = {
   currency: 'IDR',
   timezone: 'Asia/Jakarta',
   isOnboarded: true,
+  walletMode: null,
   defaultWallet: null,
   openingCash: null,
   openingDigital: null,
@@ -93,6 +94,7 @@ describe('MessageOrchestrator', () => {
       getActive: jest.fn().mockResolvedValue(null),
       awaitAmount: jest.fn().mockResolvedValue(undefined),
       awaitWallet: jest.fn().mockResolvedValue(undefined),
+      awaitWalletMode: jest.fn().mockResolvedValue(undefined),
       awaitDeleteConfirm: jest.fn().mockResolvedValue(undefined),
       awaitResetConfirm: jest.fn().mockResolvedValue(undefined),
       clear: jest.fn().mockResolvedValue(undefined),
@@ -110,17 +112,26 @@ describe('MessageOrchestrator', () => {
     reports = { generateSummary: jest.fn() } as unknown as jest.Mocked<ReportService>;
     csvExport = { export: jest.fn() } as unknown as jest.Mocked<CsvExportService>;
     wallets = {
-      overview: jest
-        .fn()
-        .mockResolvedValue({ enabled: false, lines: [], total: Money.zero(), transfers: [] }),
-      current: jest
-        .fn()
-        .mockResolvedValue({ enabled: false, lines: [], total: Money.zero(), transfers: [] }),
+      overview: jest.fn().mockResolvedValue({
+        mode: null,
+        enabled: false,
+        lines: [],
+        total: Money.zero(),
+        transfers: [],
+      }),
+      current: jest.fn().mockResolvedValue({
+        mode: null,
+        enabled: false,
+        lines: [],
+        total: Money.zero(),
+        transfers: [],
+      }),
       transfer: jest.fn(),
       getLastTransfer: jest.fn(),
       deleteLastTransfer: jest.fn(),
       setOpeningBalance: jest.fn(),
       setDefault: jest.fn(),
+      setMode: jest.fn(),
       clearSettings: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<WalletService>;
     resetData = {
@@ -286,7 +297,13 @@ describe('MessageOrchestrator', () => {
     });
 
     describe('asking for the wallet', () => {
-      const enabledOverview = { enabled: true, lines: [], total: Money.zero(), transfers: [] };
+      const enabledOverview = {
+        mode: WalletMode.BOTH,
+        enabled: true,
+        lines: [],
+        total: Money.zero(),
+        transfers: [],
+      };
 
       it('asks which wallet when the user uses wallets but has no default', async () => {
         wallets.current.mockResolvedValue(enabledOverview);
@@ -389,6 +406,118 @@ describe('MessageOrchestrator', () => {
       });
     });
 
+    describe('wallet mode', () => {
+      const cashOnly = { ...user, walletMode: WalletMode.CASH };
+
+      it('always uses the only wallet and never asks', async () => {
+        transactions.record.mockResolvedValue(result);
+        await orchestrator.process(cashOnly, msg('beli kopi 25rb qris'));
+
+        expect(transactions.record.mock.calls[0][1]).toEqual(
+          expect.objectContaining({ wallet: Wallet.CASH }),
+        );
+        expect(conversation.awaitWallet).not.toHaveBeenCalled();
+        expect(wallets.current).not.toHaveBeenCalled();
+      });
+
+      it('uses the digital wallet for a digital-only user', async () => {
+        transactions.record.mockResolvedValue(result);
+        await orchestrator.process(
+          { ...user, walletMode: WalletMode.DIGITAL },
+          msg('beli kopi 25rb'),
+        );
+        expect(transactions.record.mock.calls[0][1]).toEqual(
+          expect.objectContaining({ wallet: Wallet.DIGITAL }),
+        );
+      });
+
+      it('rejects features that need two wallets', async () => {
+        const transfer = await orchestrator.process(cashOnly, msg('tarik tunai 500rb'));
+        expect(transfer.text).toContain('Cash dan Digital');
+        expect(wallets.transfer).not.toHaveBeenCalled();
+
+        const opening = await orchestrator.process(cashOnly, msg('saldo awal digital 100rb'));
+        expect(opening.text).toContain('tidak aktif');
+        expect(wallets.setOpeningBalance).not.toHaveBeenCalled();
+
+        const dflt = await orchestrator.process(cashOnly, msg('default digital'));
+        expect(dflt.text).toContain('tidak perlu diatur');
+        expect(wallets.setDefault).not.toHaveBeenCalled();
+      });
+
+      it('still accepts an opening balance for the active wallet', async () => {
+        await orchestrator.process(cashOnly, msg('saldo awal cash 200rb'));
+        expect(wallets.setOpeningBalance).toHaveBeenCalled();
+      });
+
+      it('ignores a wallet change when editing with one wallet', async () => {
+        transactions.editLast.mockResolvedValue(result);
+        await orchestrator.process(cashOnly, msg('edit ke digital'));
+        expect(transactions.editLast.mock.calls[0][1]).toEqual(
+          expect.objectContaining({ wallet: null }),
+        );
+      });
+
+      it('asks without reading balances when the user explicitly chose both', async () => {
+        await orchestrator.process(
+          { ...user, walletMode: WalletMode.BOTH },
+          msg('beli kopi 25rb', 'w30'),
+        );
+        expect(conversation.awaitWallet).toHaveBeenCalled();
+        expect(wallets.current).not.toHaveBeenCalled();
+      });
+
+      it('starts the setup question on "atur dompet"', async () => {
+        const reply = await orchestrator.process(user, msg('atur dompet'));
+        expect(conversation.awaitWalletMode).toHaveBeenCalledWith('u1', NOW);
+        expect(reply.text).toContain('Mau pakai dompet yang mana');
+      });
+
+      const asking = {
+        state: ConversationState.AWAITING_WALLET_MODE,
+        payload: null,
+      } as unknown as ConversationContextEntity;
+
+      it('applies the chosen mode', async () => {
+        conversation.getActive.mockResolvedValue(asking);
+        wallets.setMode.mockResolvedValue({ ok: true });
+        const reply = await orchestrator.process(user, msg('3', 'w31'));
+
+        expect(wallets.setMode).toHaveBeenCalledWith('u1', WalletMode.BOTH);
+        expect(conversation.clear).toHaveBeenCalledWith('u1');
+        expect(reply.text).toContain('Cash dan Digital');
+      });
+
+      it('explains a refused change', async () => {
+        conversation.getActive.mockResolvedValue(asking);
+        wallets.setMode.mockResolvedValue({ ok: false, blocked: Wallet.DIGITAL });
+        const reply = await orchestrator.process(user, msg('cash saja', 'w32'));
+        expect(reply.text).toContain('tidak bisa dinonaktifkan');
+      });
+
+      it('asks again on an unclear answer, and cancels on "batal"', async () => {
+        conversation.getActive.mockResolvedValue(asking);
+        const retry = await orchestrator.process(user, msg('hmm', 'w33'));
+        expect(retry.text).toContain('Balas');
+        const number = await orchestrator.process(user, msg('7', 'w34'));
+        expect(number.text).toContain('Balas');
+        expect(wallets.setMode).not.toHaveBeenCalled();
+
+        const cancelled = await orchestrator.process(user, msg('batal', 'w35'));
+        expect(cancelled.text).toContain('dibatalkan');
+      });
+
+      it('offers the setup question to a new user unless another question is pending', async () => {
+        expect(await orchestrator.walletSetupPrompt(user, NOW)).toContain('Cash saja');
+        expect(conversation.awaitWalletMode).toHaveBeenCalledWith('u1', NOW);
+
+        conversation.awaitWalletMode.mockClear();
+        conversation.getActive.mockResolvedValue(asking);
+        expect(await orchestrator.walletSetupPrompt(user, NOW)).toBeNull();
+        expect(conversation.awaitWalletMode).not.toHaveBeenCalled();
+      });
+    });
+
     describe('transfers', () => {
       const transferEntity = {
         id: 't1',
@@ -466,6 +595,7 @@ describe('MessageOrchestrator', () => {
 
     it('shows balances for the balance command', async () => {
       wallets.current.mockResolvedValue({
+        mode: WalletMode.BOTH,
         enabled: true,
         lines: [
           {

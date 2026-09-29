@@ -19,6 +19,7 @@ export enum ConversationState {
   IDLE = 'IDLE',
   AWAITING_AMOUNT = 'AWAITING_AMOUNT',
   AWAITING_WALLET = 'AWAITING_WALLET',
+  AWAITING_WALLET_MODE = 'AWAITING_WALLET_MODE',
   AWAITING_CATEGORY = 'AWAITING_CATEGORY',
   AWAITING_CONFIRM = 'AWAITING_CONFIRM',
   AWAITING_DELETE_CONFIRM = 'AWAITING_DELETE_CONFIRM',
@@ -34,3 +35,20 @@ export enum Wallet {
 }
 
 export const DEFAULT_WALLET = Wallet.CASH;
+
+/**
+ * Which wallets a user works with. A user with no stored mode is "legacy": wallets
+ * stay off until they use a wallet feature, then behave as BOTH.
+ */
+export enum WalletMode {
+  CASH = 'CASH',
+  DIGITAL = 'DIGITAL',
+  BOTH = 'BOTH',
+}
+
+/** Wallets that are active for a mode; null (legacy / not chosen) shows both. */
+export function activeWallets(mode: WalletMode | null): Wallet[] {
+  if (mode === WalletMode.CASH) return [Wallet.CASH];
+  if (mode === WalletMode.DIGITAL) return [Wallet.DIGITAL];
+  return [Wallet.CASH, Wallet.DIGITAL];
+}

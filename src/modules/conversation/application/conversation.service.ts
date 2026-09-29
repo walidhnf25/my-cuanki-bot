@@ -30,6 +30,16 @@ export class ConversationService {
     });
   }
 
+  /** Ask which wallets the user wants to use and wait for the answer. */
+  async awaitWalletMode(userId: string, now: Date): Promise<void> {
+    await this.repository.set({
+      userId,
+      state: ConversationState.AWAITING_WALLET_MODE,
+      payload: null,
+      expiresAt: new Date(now.getTime() + CONTEXT_TTL_MS),
+    });
+  }
+
   /** Remember a complete transaction that still needs a wallet and wait for the reply. */
   async awaitWallet(userId: string, pending: PendingTransaction, now: Date): Promise<void> {
     await this.repository.set({

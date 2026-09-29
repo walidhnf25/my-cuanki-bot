@@ -1,4 +1,4 @@
-import { Wallet } from 'src/shared/domain/enums';
+import { Wallet, WalletMode } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { ParsedIntent } from './parsed-intent';
 
@@ -25,4 +25,7 @@ export abstract class MessageParser {
 
   /** Extract a wallet name (clarification flow). Returns null when none found. */
   abstract parseWallet(text: string): Wallet | null;
+
+  /** Read an answer to the wallet setup question (1 / 2 / 3, cash, digital, both). */
+  abstract parseWalletMode(text: string): WalletMode | null;
 }

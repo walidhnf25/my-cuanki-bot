@@ -177,6 +177,12 @@ export class SheetsTransactionRepository extends TransactionRepository {
     return totals;
   }
 
+  async hasTransactionsInWallet(userId: string, wallet: Wallet): Promise<boolean> {
+    return (await this.active()).some(
+      (r) => r.tx.userId === userId && (r.tx.wallet ?? DEFAULT_WALLET) === wallet,
+    );
+  }
+
   async hasExplicitWallet(userId: string): Promise<boolean> {
     return (await this.active()).some((r) => r.tx.userId === userId && r.tx.wallet !== null);
   }
