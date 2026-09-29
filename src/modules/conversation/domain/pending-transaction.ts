@@ -1,4 +1,4 @@
-import { TransactionType } from 'src/shared/domain/enums';
+import { TransactionType, Wallet } from 'src/shared/domain/enums';
 
 /**
  * Snapshot of a transaction awaiting a missing field (the amount), stored in
@@ -10,4 +10,6 @@ export interface PendingTransaction {
   description: string;
   keywords: string[];
   occurredAt: string;
+  /** Wallet named in the original message (absent in older payloads). */
+  wallet?: Wallet | null;
 }

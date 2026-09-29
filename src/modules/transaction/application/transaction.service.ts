@@ -59,6 +59,7 @@ export class TransactionService {
       occurredAt: intent.occurredAt,
       sourceMessage: intent.raw,
       messageId,
+      wallet: intent.wallet,
     });
 
     await this.audit.record({
@@ -96,6 +97,7 @@ export class TransactionService {
     const updated = await this.transactions.update(latest.id, {
       ...(intent.amount !== null ? { amount: intent.amount } : {}),
       ...(categoryId !== latest.categoryId ? { categoryId } : {}),
+      ...(intent.wallet ? { wallet: intent.wallet } : {}),
     });
 
     await this.audit.record({

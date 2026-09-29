@@ -1,5 +1,5 @@
 import { Money } from 'src/shared/utils/money';
-import { TransactionType } from 'src/shared/domain/enums';
+import { TransactionType, Wallet } from 'src/shared/domain/enums';
 
 export interface TransactionEntity {
   id: string;
@@ -12,6 +12,8 @@ export interface TransactionEntity {
   occurredAt: Date;
   sourceMessage: string | null;
   messageId: string | null;
+  /** null = older row / no wallet named: counts as CASH. */
+  wallet: Wallet | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -27,6 +29,7 @@ export interface CreateTransactionInput {
   occurredAt: Date;
   sourceMessage?: string | null;
   messageId?: string | null;
+  wallet?: Wallet | null;
 }
 
 export interface UpdateTransactionInput {
@@ -36,6 +39,7 @@ export interface UpdateTransactionInput {
   description?: string;
   note?: string | null;
   occurredAt?: Date;
+  wallet?: Wallet | null;
 }
 
 export interface DateRange {

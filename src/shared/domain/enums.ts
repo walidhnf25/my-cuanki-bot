@@ -22,3 +22,14 @@ export enum ConversationState {
   AWAITING_CONFIRM = 'AWAITING_CONFIRM',
   AWAITING_DELETE_CONFIRM = 'AWAITING_DELETE_CONFIRM',
 }
+
+/**
+ * Where the money sits. A transaction with no stored wallet (older rows) counts
+ * as CASH, so existing ledgers keep their meaning.
+ */
+export enum Wallet {
+  CASH = 'CASH',
+  DIGITAL = 'DIGITAL',
+}
+
+export const DEFAULT_WALLET = Wallet.CASH;

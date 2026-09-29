@@ -5,12 +5,13 @@ import {
   cellMoney,
   cellRequiredString,
   cellString,
+  cellWallet,
   dateCell,
   moneyCell,
 } from 'src/sheets/cells';
 import { SheetsClient } from 'src/sheets/sheets.client';
 import { SheetRecord } from 'src/sheets/sheets.schema';
-import { TransactionType } from 'src/shared/domain/enums';
+import { DEFAULT_WALLET, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import {
   CategoryTotal,
@@ -42,6 +43,7 @@ export function toTransactionEntity(data: SheetRecord): TransactionEntity {
     occurredAt: cellDate(data.occurred_at) ?? createdAt,
     sourceMessage: cellString(data.source_message),
     messageId: cellString(data.message_id),
+    wallet: cellWallet(data.wallet),
     deletedAt: cellDate(data.deleted_at),
     createdAt,
     updatedAt: cellDate(data.updated_at) ?? createdAt,
@@ -63,6 +65,7 @@ function toRecord(tx: TransactionEntity): SheetRecord {
     deleted_at: dateCell(tx.deletedAt),
     created_at: dateCell(tx.createdAt),
     updated_at: dateCell(tx.updatedAt),
+    wallet: tx.wallet,
   };
 }
 
@@ -93,6 +96,7 @@ export class SheetsTransactionRepository extends TransactionRepository {
       occurredAt: input.occurredAt,
       sourceMessage: input.sourceMessage ?? null,
       messageId: input.messageId ?? null,
+      wallet: input.wallet ?? null,
       deletedAt: null,
       createdAt: now,
       updatedAt: now,
@@ -155,6 +159,26 @@ export class SheetsTransactionRepository extends TransactionRepository {
       else totals.expense = totals.expense.add(tx.amount);
     }
     return totals;
+  }
+
+  async sumByWallet(userId: string, range?: DateRange): Promise<Record<Wallet, TypedTotals>> {
+    const totals: Record<Wallet, TypedTotals> = {
+      [Wallet.CASH]: { income: Money.zero(), expense: Money.zero() },
+      [Wallet.DIGITAL]: { income: Money.zero(), expense: Money.zero() },
+    };
+    const txs = range
+      ? await this.forUserInRange(userId, range)
+      : (await this.active()).map((r) => r.tx).filter((tx) => tx.userId === userId);
+    for (const tx of txs) {
+      const bucket = totals[tx.wallet ?? DEFAULT_WALLET];
+      if (tx.type === TransactionType.INCOME) bucket.income = bucket.income.add(tx.amount);
+      else bucket.expense = bucket.expense.add(tx.amount);
+    }
+    return totals;
+  }
+
+  async hasExplicitWallet(userId: string): Promise<boolean> {
+    return (await this.active()).some((r) => r.tx.userId === userId && r.tx.wallet !== null);
   }
 
   async sumByCategory(

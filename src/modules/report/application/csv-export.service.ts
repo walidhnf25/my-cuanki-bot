@@ -3,7 +3,8 @@ import ExcelJS from 'exceljs';
 import { CategoryRepository } from 'src/modules/category/domain/category.repository';
 import { DateRangeSpec, SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
-import { TransactionType } from 'src/shared/domain/enums';
+import { WalletOverview } from 'src/modules/wallet/application/wallet.service';
+import { DEFAULT_WALLET, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
 import { Money } from 'src/shared/utils/money';
 import { customRangeInfo, resolvePeriod } from './period';
@@ -18,6 +19,10 @@ export interface CsvExport {
 export const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 const UNCATEGORIZED = 'Tanpa Kategori';
+const WALLET_NAME: Record<Wallet, string> = {
+  [Wallet.CASH]: 'Cash',
+  [Wallet.DIGITAL]: 'Digital',
+};
 const RUPIAH_FORMAT = '"Rp"#,##0;[Red]-"Rp"#,##0';
 const TABLE_HEADER_ROW = 4;
 
@@ -56,8 +61,8 @@ function styleHeader(row: ExcelJS.Row, argb: string, cols: number): void {
 }
 
 /** Full-width coloured band used as a section title. */
-function addBand(sheet: ExcelJS.Worksheet, rowNum: number, text: string): void {
-  sheet.mergeCells(`A${rowNum}:E${rowNum}`);
+function addBand(sheet: ExcelJS.Worksheet, rowNum: number, text: string, lastCol: string): void {
+  sheet.mergeCells(`A${rowNum}:${lastCol}${rowNum}`);
   const row = sheet.getRow(rowNum);
   row.height = 24;
   const cell = row.getCell(1);
@@ -107,6 +112,53 @@ function addBreakdown(
   return r + 1;
 }
 
+/** Per-wallet table: money in/out over the period and the current balance. */
+function addWalletTable(
+  sheet: ExcelJS.Worksheet,
+  startRow: number,
+  overview: WalletOverview,
+): number {
+  sheet.mergeCells(`A${startRow}:B${startRow}`);
+  const header = sheet.getRow(startRow);
+  header.getCell(1).value = 'Per Dompet';
+  header.getCell(3).value = 'Pemasukan';
+  header.getCell(4).value = 'Pengeluaran';
+  header.getCell(5).value = 'Saldo Saat Ini';
+  styleHeader(header, COLOR.primary, 5);
+  header.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+
+  let r = startRow + 1;
+  overview.lines.forEach((line, i) => {
+    sheet.mergeCells(`A${r}:B${r}`);
+    const row = sheet.getRow(r);
+    row.getCell(1).value = WALLET_NAME[line.wallet];
+    row.getCell(1).alignment = { indent: 1 };
+    row.getCell(3).value = toRupiah(line.income);
+    row.getCell(4).value = toRupiah(line.expense);
+    row.getCell(5).value = toRupiah(line.balance);
+    for (let c = 3; c <= 5; c++) row.getCell(c).numFmt = RUPIAH_FORMAT;
+    row.getCell(5).font = { bold: true };
+    for (let c = 1; c <= 5; c++) {
+      row.getCell(c).border = BORDER;
+      if (i % 2 === 1) row.getCell(c).fill = fill(COLOR.stripe);
+    }
+    r++;
+  });
+
+  sheet.mergeCells(`A${r}:B${r}`);
+  const total = sheet.getRow(r);
+  total.getCell(1).value = 'Total Saldo';
+  total.getCell(5).value = toRupiah(overview.total);
+  total.getCell(5).numFmt = RUPIAH_FORMAT;
+  for (let c = 1; c <= 5; c++) {
+    total.getCell(c).font = { bold: true };
+    total.getCell(c).fill = fill(COLOR.stripe);
+    total.getCell(c).border = BORDER;
+  }
+  total.getCell(1).alignment = { indent: 1 };
+  return r + 2;
+}
+
 /**
  * Exports a user's transactions for a period to a formatted Excel workbook (.xlsx):
  * a single "Transaksi" sheet with the date-sorted transaction table followed by a
@@ -125,6 +177,7 @@ export class CsvExportService {
     now: Date,
     tz: string,
     customRange?: DateRangeSpec,
+    wallets?: WalletOverview,
   ): Promise<CsvExport> {
     const { range, slug, label } = customRange
       ? customRangeInfo(customRange, tz)
@@ -145,11 +198,21 @@ export class CsvExportService {
     const sheet = wb.addWorksheet('Transaksi', {
       views: [{ state: 'frozen', ySplit: TABLE_HEADER_ROW }],
     });
-    sheet.columns = [{ width: 13 }, { width: 14 }, { width: 18 }, { width: 34 }, { width: 20 }];
+    const showWallets = wallets?.enabled === true;
+    const colCount = showWallets ? 6 : 5;
+    const lastCol = showWallets ? 'F' : 'E';
+    sheet.columns = [
+      { width: 13 },
+      { width: 14 },
+      { width: 18 },
+      { width: 34 },
+      { width: 20 },
+      ...(showWallets ? [{ width: 12 }] : []),
+    ];
 
     // ---- Title ----
-    sheet.mergeCells('A1:E1');
-    sheet.mergeCells('A2:E2');
+    sheet.mergeCells(`A1:${lastCol}1`);
+    sheet.mergeCells(`A2:${lastCol}2`);
     const title = sheet.getCell('A1');
     title.value = 'Laporan Keuangan';
     title.font = { bold: true, size: 16, color: { argb: COLOR.primary } };
@@ -161,8 +224,15 @@ export class CsvExportService {
 
     // ---- Transaction table ----
     const header = sheet.getRow(TABLE_HEADER_ROW);
-    header.values = ['Tanggal', 'Tipe', 'Jumlah', 'Deskripsi', 'Kategori'];
-    styleHeader(header, COLOR.primary, 5);
+    header.values = [
+      'Tanggal',
+      'Tipe',
+      'Jumlah',
+      'Deskripsi',
+      'Kategori',
+      ...(showWallets ? ['Dompet'] : []),
+    ];
+    styleHeader(header, COLOR.primary, colCount);
 
     let income = Money.zero();
     let expense = Money.zero();
@@ -179,6 +249,7 @@ export class CsvExportService {
         toRupiah(t.amount),
         t.description,
         category || UNCATEGORIZED,
+        ...(showWallets ? [WALLET_NAME[t.wallet ?? DEFAULT_WALLET]] : []),
       ];
       row.getCell(1).alignment = { horizontal: 'center' };
       row.getCell(2).alignment = { horizontal: 'center' };
@@ -203,11 +274,11 @@ export class CsvExportService {
       return this.finish(wb, slug, 0);
     }
     const lastRow = TABLE_HEADER_ROW + rows.length;
-    sheet.autoFilter = { from: `A${TABLE_HEADER_ROW}`, to: `E${lastRow}` };
+    sheet.autoFilter = { from: `A${TABLE_HEADER_ROW}`, to: `${lastCol}${lastRow}` };
 
     // ---- Summary (below the table) ----
     const bandRow = lastRow + 3;
-    addBand(sheet, bandRow, 'RINGKASAN');
+    addBand(sheet, bandRow, 'RINGKASAN', lastCol);
 
     const balance = income.subtract(expense);
     const cards: [string, string | number, string, string, string?][] = [
@@ -241,6 +312,9 @@ export class CsvExportService {
     });
 
     let next = bandRow + cards.length + 2;
+    if (wallets && showWallets) {
+      next = addWalletTable(sheet, next, wallets);
+    }
     next = addBreakdown(
       sheet,
       next,

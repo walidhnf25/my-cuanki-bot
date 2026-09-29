@@ -1,6 +1,6 @@
 import { SheetsClient } from 'src/sheets/sheets.client';
 import { SheetName, SheetRecord, SheetRow } from 'src/sheets/sheets.schema';
-import { TransactionType } from 'src/shared/domain/enums';
+import { TransactionType, Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { SheetsTransactionRepository } from './sheets-transaction.repository';
 
@@ -86,6 +86,34 @@ describe('SheetsTransactionRepository', () => {
       ['cat-fuel', 100000],
       ['cat-food', 40000],
     ]);
+  });
+
+  it('sums per wallet, counting rows without a wallet as cash', async () => {
+    await create({ amount: Money.fromMajor(10000) });
+    await create({ amount: Money.fromMajor(5000), wallet: Wallet.DIGITAL });
+    await create({
+      type: TransactionType.INCOME,
+      amount: Money.fromMajor(70000),
+      wallet: Wallet.CASH,
+    });
+    await create({ userId: 'u2', amount: Money.fromMajor(999), wallet: Wallet.DIGITAL });
+
+    const totals = await repo.sumByWallet('u1', range);
+    expect(totals[Wallet.CASH].expense.toNumber()).toBe(10000);
+    expect(totals[Wallet.CASH].income.toNumber()).toBe(70000);
+    expect(totals[Wallet.DIGITAL].expense.toNumber()).toBe(5000);
+    expect((await repo.sumByWallet('u1'))[Wallet.CASH].expense.toNumber()).toBe(10000);
+    expect(await repo.hasExplicitWallet('u1')).toBe(true);
+    expect(await repo.hasExplicitWallet('nobody')).toBe(false);
+  });
+
+  it('reads a blank wallet cell as null and persists an explicit one', async () => {
+    const legacy = await create();
+    expect(legacy.wallet).toBeNull();
+    expect(sheets.tabs.get('transactions')![0].data.wallet).toBeNull();
+    const digital = await create({ wallet: Wallet.DIGITAL });
+    expect(digital.wallet).toBe(Wallet.DIGITAL);
+    expect(sheets.tabs.get('transactions')![1].data.wallet).toBe('DIGITAL');
   });
 
   it('finds the latest non-deleted transaction and edits it in place', async () => {

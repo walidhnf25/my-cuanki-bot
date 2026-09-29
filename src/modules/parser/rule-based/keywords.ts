@@ -35,6 +35,34 @@ export const SUMMARY_WORDS = [
 
 export const EXPORT_WORDS = ['export', 'ekspor', 'unduh', 'download', 'csv'];
 
+/** Words naming the cash wallet. */
+export const CASH_WALLET_WORDS = ['cash', 'tunai', 'kas'];
+
+/** Words naming the digital wallet (bank transfer, QRIS, e-wallets, cards). */
+export const DIGITAL_WALLET_WORDS = [
+  'digital',
+  'transfer',
+  'tf',
+  'qris',
+  'gopay',
+  'ovo',
+  'shopeepay',
+  'linkaja',
+  'ewallet',
+  'debit',
+  'kredit',
+  'bca',
+  'bri',
+  'bni',
+  'mandiri',
+  'jago',
+  'seabank',
+];
+
+export const BALANCE_WORDS = ['saldo'];
+
+export const DEFAULT_WORDS = ['default', 'utama', 'standar'];
+
 export const BUDGET_WORDS = ['budget', 'anggaran', 'batasi', 'batas'];
 
 /** Words indicating money coming IN. */

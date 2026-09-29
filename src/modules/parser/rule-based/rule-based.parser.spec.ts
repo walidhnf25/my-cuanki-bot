@@ -1,5 +1,5 @@
 import { toIsoDate } from 'src/shared/utils/date.util';
-import { BudgetPeriod, TransactionType } from 'src/shared/domain/enums';
+import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { IntentType, ParsedIntent, SummaryPeriod } from '../domain/parsed-intent';
 import { RuleBasedParser } from './rule-based.parser';
 
@@ -136,6 +136,78 @@ describe('RuleBasedParser', () => {
 
     it('returns Unknown for gibberish', async () => {
       expect((await parse('asdfghjkl')).type).toBe(IntentType.Unknown);
+    });
+  });
+
+  describe('wallets', () => {
+    it.each([
+      ['beli kopi 25rb cash', Wallet.CASH],
+      ['bayar tunai bakso 15rb', Wallet.CASH],
+      ['gaji 5 juta transfer', Wallet.DIGITAL],
+      ['bensin 50rb gopay', Wallet.DIGITAL],
+      ['makan siang 30rb qris', Wallet.DIGITAL],
+    ])('detects the wallet in "%s"', async (text, wallet) => {
+      const intent = await parse(text);
+      expect(intent.type).toBe(IntentType.RecordTransaction);
+      if (intent.type !== IntentType.RecordTransaction) return;
+      expect(intent.wallet).toBe(wallet);
+    });
+
+    it('leaves wallet null when none is named and keeps it out of keywords', async () => {
+      const plain = await parse('beli kopi 25rb');
+      const named = await parse('beli kopi 25rb cash');
+      if (plain.type !== IntentType.RecordTransaction) throw new Error('unexpected intent');
+      if (named.type !== IntentType.RecordTransaction) throw new Error('unexpected intent');
+      expect(plain.wallet).toBeNull();
+      expect(named.keywords).toEqual(plain.keywords);
+      expect(named.description).toBe('kopi');
+    });
+
+    it('keeps the wallet when the amount is still missing', async () => {
+      const intent = await parse('beli kopi cash');
+      if (intent.type !== IntentType.RecordTransaction) throw new Error('unexpected intent');
+      expect(intent.amount).toBeNull();
+      expect(intent.wallet).toBe(Wallet.CASH);
+    });
+
+    it('does not treat "cashback" as a wallet', async () => {
+      const intent = await parse('cashback 5rb');
+      if (intent.type !== IntentType.RecordTransaction) throw new Error('unexpected intent');
+      expect(intent.wallet).toBeNull();
+    });
+
+    it('parses the balance command', async () => {
+      expect((await parse('saldo')).type).toBe(IntentType.Balance);
+      expect((await parse('cek saldo')).type).toBe(IntentType.Balance);
+    });
+
+    it('parses opening balance', async () => {
+      const intent = await parse('saldo awal cash 200rb');
+      expect(intent.type).toBe(IntentType.SetOpeningBalance);
+      if (intent.type !== IntentType.SetOpeningBalance) return;
+      expect(intent.wallet).toBe(Wallet.CASH);
+      expect(intent.amount?.toNumber()).toBe(200000);
+    });
+
+    it('parses opening balance with a missing wallet', async () => {
+      const intent = await parse('saldo awal 200rb');
+      if (intent.type !== IntentType.SetOpeningBalance) throw new Error('unexpected intent');
+      expect(intent.wallet).toBeNull();
+    });
+
+    it('parses the default wallet command', async () => {
+      const intent = await parse('default digital');
+      expect(intent.type).toBe(IntentType.SetDefaultWallet);
+      if (intent.type !== IntentType.SetDefaultWallet) return;
+      expect(intent.wallet).toBe(Wallet.DIGITAL);
+    });
+
+    it('parses a wallet change on edit', async () => {
+      const intent = await parse('edit ke digital');
+      expect(intent.type).toBe(IntentType.EditTransaction);
+      if (intent.type !== IntentType.EditTransaction) return;
+      expect(intent.wallet).toBe(Wallet.DIGITAL);
+      expect(intent.keywords).toEqual([]);
     });
   });
 

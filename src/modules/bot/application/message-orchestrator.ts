@@ -14,6 +14,7 @@ import { ReportService } from 'src/modules/report/application/report.service';
 import { TransactionService } from 'src/modules/transaction/application/transaction.service';
 import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
+import { WalletService } from 'src/modules/wallet/application/wallet.service';
 import { ConversationState, TransactionType } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { tokenize } from 'src/shared/utils/string-normalizer';
@@ -44,6 +45,7 @@ export class MessageOrchestrator {
     private readonly reports: ReportService,
     private readonly csvExport: CsvExportService,
     private readonly resetData: ResetUserDataService,
+    private readonly wallets: WalletService,
     private readonly replies: ReplyBuilder,
   ) {}
 
@@ -105,6 +107,7 @@ export class MessageOrchestrator {
       const answer = this.yesNo(message.text);
       if (answer === 'yes') {
         await this.resetData.reset(user.id);
+        await this.wallets.clearSettings(user.id);
         await this.conversation.clear(user.id);
         return { text: this.replies.dataReset() };
       }
@@ -140,6 +143,7 @@ export class MessageOrchestrator {
             description: intent.description,
             keywords: intent.keywords,
             occurredAt: intent.occurredAt.toISOString(),
+            wallet: intent.wallet,
           },
           now,
         );
@@ -168,7 +172,14 @@ export class MessageOrchestrator {
           user.timezone,
           intent.customRange,
         );
-        return { text: this.replies.summary(summary) };
+        const wallets = await this.wallets.overview(
+          user.id,
+          intent.period,
+          now,
+          user.timezone,
+          intent.customRange,
+        );
+        return { text: this.replies.summary(summary, wallets) };
       }
 
       case IntentType.SetBudget: {
@@ -191,6 +202,13 @@ export class MessageOrchestrator {
           now,
           user.timezone,
           intent.customRange,
+          await this.wallets.overview(
+            user.id,
+            intent.period,
+            now,
+            user.timezone,
+            intent.customRange,
+          ),
         );
         return {
           text: this.replies.exportCaption(csv.rowCount),
@@ -199,6 +217,23 @@ export class MessageOrchestrator {
               ? { content: csv.content, filename: csv.filename, mimeType: csv.mimeType }
               : undefined,
         };
+      }
+
+      case IntentType.Balance:
+        return { text: this.replies.balance(await this.wallets.current(user.id)) };
+
+      case IntentType.SetOpeningBalance: {
+        if (intent.wallet === null || intent.amount === null) {
+          return { text: this.replies.askOpeningBalance() };
+        }
+        await this.wallets.setOpeningBalance(user.id, intent.wallet, intent.amount);
+        return { text: this.replies.openingBalanceSet(intent.wallet, intent.amount) };
+      }
+
+      case IntentType.SetDefaultWallet: {
+        if (intent.wallet === null) return { text: this.replies.askDefaultWallet() };
+        await this.wallets.setDefault(user.id, intent.wallet);
+        return { text: this.replies.defaultWalletSet(intent.wallet) };
       }
 
       case IntentType.ResetData: {
@@ -217,7 +252,12 @@ export class MessageOrchestrator {
     messageId: string,
     now: Date,
   ): Promise<OutgoingReply> {
-    const result = await this.transactions.record(user.id, intent, messageId);
+    // A wallet named in the message wins; otherwise fall back to the user's default.
+    const result = await this.transactions.record(
+      user.id,
+      { ...intent, wallet: intent.wallet ?? user.defaultWallet },
+      messageId,
+    );
     if (!result) return {};
 
     let text = this.replies.recorded(result, user.timezone);
@@ -251,6 +291,7 @@ export class MessageOrchestrator {
       description: pending.description,
       keywords: pending.keywords,
       occurredAt: new Date(pending.occurredAt),
+      wallet: pending.wallet ?? null,
     };
     return this.recordAndReply(user, intent, message.messageId, message.timestamp);
   }

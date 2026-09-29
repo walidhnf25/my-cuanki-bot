@@ -14,6 +14,9 @@ export const SHEET_COLUMNS = {
     'is_onboarded',
     'created_at',
     'updated_at',
+    'default_wallet',
+    'opening_cash',
+    'opening_digital',
   ],
   categories: ['id', 'user_id', 'name', 'type', 'icon', 'is_system', 'keywords', 'created_at'],
   transactions: [
@@ -30,6 +33,7 @@ export const SHEET_COLUMNS = {
     'deleted_at',
     'created_at',
     'updated_at',
+    'wallet',
   ],
   budgets: [
     'id',

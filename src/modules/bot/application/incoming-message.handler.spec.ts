@@ -42,6 +42,9 @@ class StubUserRepository extends UserRepository {
       currency: 'IDR',
       timezone: 'Asia/Jakarta',
       isOnboarded: false,
+      defaultWallet: null,
+      openingCash: null,
+      openingDigital: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

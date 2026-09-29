@@ -1,4 +1,4 @@
-import { TransactionType } from 'src/shared/domain/enums';
+import { TransactionType, Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { IntentType, ParsedIntent } from 'src/modules/parser/domain/parsed-intent';
 import { ReplyBuilder } from './reply-builder';
@@ -22,6 +22,7 @@ describe('ReplyBuilder', () => {
       description: 'kopi',
       keywords: ['kopi'],
       occurredAt: new Date(),
+      wallet: null,
     };
     const reply = replies.compose(intent);
     expect(reply).toContain('Pengeluaran');
@@ -38,8 +39,64 @@ describe('ReplyBuilder', () => {
       description: 'kopi',
       keywords: ['kopi'],
       occurredAt: new Date(),
+      wallet: null,
     };
     expect(replies.compose(intent)).toContain('Berapa harganya');
+  });
+
+  it('shows the wallet only when the transaction has one', () => {
+    const base = {
+      transaction: {
+        id: 't',
+        userId: 'u',
+        categoryId: null,
+        type: TransactionType.EXPENSE,
+        amount: Money.fromMajor(25000),
+        description: 'kopi',
+        note: null,
+        occurredAt: new Date(),
+        sourceMessage: null,
+        messageId: null,
+        wallet: null,
+        deletedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      category: null,
+    };
+    expect(replies.recorded(base, 'Asia/Jakarta')).not.toContain('Cash');
+    expect(
+      replies.recorded(
+        { ...base, transaction: { ...base.transaction, wallet: Wallet.DIGITAL } },
+        'Asia/Jakarta',
+      ),
+    ).toContain('Digital');
+  });
+
+  it('lists per-wallet figures in the summary only when wallets are enabled', () => {
+    const summary = {
+      periodLabel: 'Bulan Ini',
+      range: { start: new Date(), end: new Date() },
+      income: Money.fromMajor(100),
+      expense: Money.fromMajor(50),
+      balance: Money.fromMajor(50),
+      categories: [],
+    };
+    const line = (wallet: Wallet) => ({
+      wallet,
+      income: Money.zero(),
+      expense: Money.zero(),
+      balance: Money.fromMajor(1000),
+    });
+    const overview = {
+      enabled: true,
+      lines: [line(Wallet.CASH), line(Wallet.DIGITAL)],
+      total: Money.zero(),
+    };
+
+    expect(replies.summary(summary)).not.toContain('Per dompet');
+    expect(replies.summary(summary, { ...overview, enabled: false })).not.toContain('Per dompet');
+    expect(replies.summary(summary, overview)).toContain('Per dompet');
   });
 
   it('shows the help menu', () => {

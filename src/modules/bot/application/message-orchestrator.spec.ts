@@ -12,9 +12,10 @@ import {
 import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
-import { ConversationState, TransactionType } from 'src/shared/domain/enums';
+import { ConversationState, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { IncomingMessage } from '../domain/messaging.gateway.port';
+import { WalletService } from 'src/modules/wallet/application/wallet.service';
 import { MessageOrchestrator } from './message-orchestrator';
 import { ReplyBuilder } from './reply-builder';
 
@@ -28,6 +29,9 @@ const user: UserEntity = {
   currency: 'IDR',
   timezone: 'Asia/Jakarta',
   isOnboarded: true,
+  defaultWallet: null,
+  openingCash: null,
+  openingDigital: null,
   createdAt: NOW,
   updatedAt: NOW,
 };
@@ -54,6 +58,7 @@ function txEntity(over: Partial<TransactionEntity> = {}): TransactionEntity {
     occurredAt: NOW,
     sourceMessage: '',
     messageId: 'w1',
+    wallet: null,
     deletedAt: null,
     createdAt: NOW,
     updatedAt: NOW,
@@ -79,6 +84,7 @@ describe('MessageOrchestrator', () => {
   let budgets: jest.Mocked<BudgetService>;
   let reports: jest.Mocked<ReportService>;
   let csvExport: jest.Mocked<CsvExportService>;
+  let wallets: jest.Mocked<WalletService>;
   let resetData: jest.Mocked<ResetUserDataService>;
   let orchestrator: MessageOrchestrator;
 
@@ -102,6 +108,13 @@ describe('MessageOrchestrator', () => {
     } as unknown as jest.Mocked<BudgetService>;
     reports = { generateSummary: jest.fn() } as unknown as jest.Mocked<ReportService>;
     csvExport = { export: jest.fn() } as unknown as jest.Mocked<CsvExportService>;
+    wallets = {
+      overview: jest.fn().mockResolvedValue({ enabled: false, lines: [], total: Money.zero() }),
+      current: jest.fn(),
+      setOpeningBalance: jest.fn(),
+      setDefault: jest.fn(),
+      clearSettings: jest.fn().mockResolvedValue(undefined),
+    } as unknown as jest.Mocked<WalletService>;
     resetData = {
       reset: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<ResetUserDataService>;
@@ -113,6 +126,7 @@ describe('MessageOrchestrator', () => {
       reports,
       csvExport,
       resetData,
+      wallets,
       new ReplyBuilder(),
     );
   });
@@ -225,6 +239,89 @@ describe('MessageOrchestrator', () => {
       const reply = await orchestrator.process(user, msg('export bulan ini'));
       expect(reply.document?.filename).toBe('transaksi-bulan-ini.xlsx');
       expect(reply.text).toContain('3 transaksi');
+    });
+  });
+
+  describe('wallets', () => {
+    const recordedIntent = (): { wallet: Wallet | null } =>
+      transactions.record.mock.calls[0][1] as unknown as { wallet: Wallet | null };
+
+    it('leaves the wallet empty for a user without a default', async () => {
+      transactions.record.mockResolvedValue(result);
+      await orchestrator.process(user, msg('beli kopi 25rb'));
+      expect(recordedIntent().wallet).toBeNull();
+    });
+
+    it('uses the default wallet when the message names none', async () => {
+      transactions.record.mockResolvedValue(result);
+      await orchestrator.process({ ...user, defaultWallet: Wallet.DIGITAL }, msg('beli kopi 25rb'));
+      expect(recordedIntent().wallet).toBe(Wallet.DIGITAL);
+    });
+
+    it('prefers a wallet named in the message over the default', async () => {
+      transactions.record.mockResolvedValue(result);
+      await orchestrator.process(
+        { ...user, defaultWallet: Wallet.DIGITAL },
+        msg('beli kopi 25rb cash'),
+      );
+      expect(recordedIntent().wallet).toBe(Wallet.CASH);
+    });
+
+    it('keeps the wallet through the ask-for-amount flow', async () => {
+      conversation.getActive.mockResolvedValue(null);
+      await orchestrator.process(user, msg('beli kopi cash'));
+      expect(conversation.awaitAmount).toHaveBeenCalledWith(
+        'u1',
+        expect.objectContaining({ wallet: Wallet.CASH }),
+        NOW,
+      );
+    });
+
+    it('shows balances for the balance command', async () => {
+      wallets.current.mockResolvedValue({
+        enabled: true,
+        lines: [
+          {
+            wallet: Wallet.CASH,
+            income: Money.zero(),
+            expense: Money.zero(),
+            balance: Money.fromMajor(400000),
+          },
+          {
+            wallet: Wallet.DIGITAL,
+            income: Money.zero(),
+            expense: Money.zero(),
+            balance: Money.fromMajor(150000),
+          },
+        ],
+        total: Money.fromMajor(550000),
+      });
+      const reply = await orchestrator.process(user, msg('saldo'));
+      expect(reply.text).toContain('Rp400.000');
+      expect(reply.text).toContain('Rp150.000');
+      expect(reply.text).toContain('Rp550.000');
+    });
+
+    it('sets the opening balance', async () => {
+      const reply = await orchestrator.process(user, msg('saldo awal digital 1 juta'));
+      expect(wallets.setOpeningBalance).toHaveBeenCalledWith(
+        'u1',
+        Wallet.DIGITAL,
+        expect.objectContaining({}),
+      );
+      expect(reply.text).toContain('Rp1.000.000');
+    });
+
+    it('asks again when the opening balance is incomplete', async () => {
+      const reply = await orchestrator.process(user, msg('saldo awal 200rb'));
+      expect(wallets.setOpeningBalance).not.toHaveBeenCalled();
+      expect(reply.text).toContain('saldo awal cash');
+    });
+
+    it('sets the default wallet', async () => {
+      const reply = await orchestrator.process(user, msg('default digital'));
+      expect(wallets.setDefault).toHaveBeenCalledWith('u1', Wallet.DIGITAL);
+      expect(reply.text).toContain('default');
     });
   });
 

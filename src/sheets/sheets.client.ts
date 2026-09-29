@@ -128,8 +128,11 @@ export class SheetsClient implements OnModuleInit {
   async ensureSchema(): Promise<void> {
     const sheetIds = await this.getSheetIds(true);
     const missing = SHEET_NAMES.filter((name) => !sheetIds.has(name));
-    if (missing.length === 0) return;
+    if (missing.length > 0) await this.createTabs(missing);
+    await this.addMissingHeaders(SHEET_NAMES.filter((name) => sheetIds.has(name)));
+  }
 
+  private async createTabs(missing: SheetName[]): Promise<void> {
     await this.request('POST', ':batchUpdate', {
       requests: missing.map((title) => ({ addSheet: { properties: { title } } })),
     });
@@ -142,6 +145,36 @@ export class SheetsClient implements OnModuleInit {
     });
     this.sheetIds = null;
     this.logger.log(`Created missing sheet tabs: ${missing.join(', ')}`);
+  }
+
+  /**
+   * Existing tabs created before a column was added lack its header. Append the
+   * missing header cells (only when the present headers match the expected
+   * prefix, so a hand-edited layout is never overwritten).
+   */
+  private async addMissingHeaders(existing: SheetName[]): Promise<void> {
+    if (existing.length === 0) return;
+    const query = existing.map((s) => `ranges=${encodeURIComponent(`${s}!1:1`)}`).join('&');
+    const res = await this.request<{ valueRanges?: Array<{ values?: Cell[][] }> }>(
+      'GET',
+      `/values:batchGet?${query}&valueRenderOption=UNFORMATTED_VALUE`,
+    );
+
+    const data: Array<{ range: string; values: Cell[][] }> = [];
+    existing.forEach((sheet, i) => {
+      const header = res.valueRanges?.[i]?.values?.[0] ?? [];
+      const expected = SHEET_COLUMNS[sheet];
+      if (header.length >= expected.length) return;
+      if (!header.every((cell, j) => cell === expected[j])) return;
+      data.push({
+        range: `${sheet}!${columnLetter(header.length + 1)}1`,
+        values: [[...expected.slice(header.length)]],
+      });
+    });
+    if (data.length === 0) return;
+
+    await this.request('POST', '/values:batchUpdate', { valueInputOption: 'RAW', data });
+    this.logger.log(`Added missing column headers to: ${data.map((d) => d.range).join(', ')}`);
   }
 
   // ---- Internal ----

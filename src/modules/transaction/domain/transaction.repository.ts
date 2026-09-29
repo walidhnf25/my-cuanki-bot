@@ -1,4 +1,4 @@
-import { TransactionType } from 'src/shared/domain/enums';
+import { TransactionType, Wallet } from 'src/shared/domain/enums';
 import {
   CategoryTotal,
   CreateTransactionInput,
@@ -38,6 +38,15 @@ export abstract class TransactionRepository {
   abstract sumByType(userId: string, range: DateRange): Promise<TypedTotals>;
 
   /** Per-category totals for a given type within the range. */
+  /**
+   * Income/expense per wallet (deleted excluded); all time when no range is given.
+   * Rows without a wallet count as CASH.
+   */
+  abstract sumByWallet(userId: string, range?: DateRange): Promise<Record<Wallet, TypedTotals>>;
+
+  /** True once the user has at least one transaction with an explicit wallet. */
+  abstract hasExplicitWallet(userId: string): Promise<boolean>;
+
   abstract sumByCategory(
     userId: string,
     range: DateRange,

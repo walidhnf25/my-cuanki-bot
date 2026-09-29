@@ -3,7 +3,7 @@ import { CategoryRepository } from 'src/modules/category/domain/category.reposit
 import { SummaryPeriod } from 'src/modules/parser/domain/parsed-intent';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
 import { TransactionRepository } from 'src/modules/transaction/domain/transaction.repository';
-import { TransactionType } from 'src/shared/domain/enums';
+import { TransactionType, Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { CsvExportService } from './csv-export.service';
 
@@ -19,6 +19,7 @@ function tx(over: Partial<TransactionEntity> = {}): TransactionEntity {
     occurredAt: new Date('2026-07-15T05:00:00.000Z'),
     sourceMessage: '',
     messageId: 'w',
+    wallet: null,
     deletedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -98,5 +99,74 @@ describe('CsvExportService (xlsx)', () => {
     expect(sheet.getCell('A16').value).toBe('Pengeluaran per Kategori');
     expect(sheet.getCell('A17').value).toBe('Makanan');
     expect(sheet.getCell('D17').value).toBe(1);
+  });
+
+  describe('with wallets', () => {
+    const overview = {
+      enabled: true,
+      lines: [
+        {
+          wallet: Wallet.CASH,
+          income: Money.fromMajor(100000),
+          expense: Money.fromMajor(25000),
+          balance: Money.fromMajor(75000),
+        },
+        {
+          wallet: Wallet.DIGITAL,
+          income: Money.zero(),
+          expense: Money.fromMajor(10000),
+          balance: Money.fromMajor(190000),
+        },
+      ],
+      total: Money.fromMajor(265000),
+    };
+
+    it('adds a Dompet column and a per-wallet summary table', async () => {
+      transactions.findManyInRange.mockResolvedValue([
+        tx({ description: 'kopi', wallet: null }),
+        tx({ description: 'bensin', wallet: Wallet.DIGITAL }),
+      ]);
+      categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
+
+      const out = await service.export(
+        'u1',
+        SummaryPeriod.Month,
+        new Date(),
+        'Asia/Jakarta',
+        undefined,
+        overview,
+      );
+      const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
+
+      expect(sheet.getCell('F4').value).toBe('Dompet');
+      expect(sheet.getCell('F5').value).toBe('Cash');
+      expect(sheet.getCell('F6').value).toBe('Digital');
+
+      // Summary: band 9, cards 10-13, blank, wallet table starts at 15.
+      expect(sheet.getCell('A15').value).toBe('Per Dompet');
+      expect(sheet.getCell('A16').value).toBe('Cash');
+      expect(sheet.getCell('E16').value).toBe(75000);
+      expect(sheet.getCell('A17').value).toBe('Digital');
+      expect(sheet.getCell('E17').value).toBe(190000);
+      expect(sheet.getCell('A18').value).toBe('Total Saldo');
+      expect(sheet.getCell('E18').value).toBe(265000);
+    });
+
+    it('omits wallet detail when wallets are not enabled', async () => {
+      transactions.findManyInRange.mockResolvedValue([tx()]);
+      categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
+
+      const out = await service.export(
+        'u1',
+        SummaryPeriod.Month,
+        new Date(),
+        'Asia/Jakarta',
+        undefined,
+        { ...overview, enabled: false },
+      );
+      const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
+      expect(sheet.getCell('F4').value).toBeNull();
+      expect(sheet.getCell('A15').value).not.toBe('Per Dompet');
+    });
   });
 });

@@ -1,3 +1,6 @@
+import { Wallet } from 'src/shared/domain/enums';
+import { Money } from 'src/shared/utils/money';
+
 /** Domain representation of an application user (framework/persistence agnostic). */
 export interface UserEntity {
   id: string;
@@ -9,6 +12,11 @@ export interface UserEntity {
   currency: string;
   timezone: string;
   isOnboarded: boolean;
+  /** Wallet used when a message doesn't name one; null = never chosen (behaves as CASH). */
+  defaultWallet: Wallet | null;
+  /** Balance held before the first recorded transaction; null = not set. */
+  openingCash: Money | null;
+  openingDigital: Money | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,4 +33,7 @@ export interface UpdateUserInput {
   currency?: string;
   timezone?: string;
   isOnboarded?: boolean;
+  defaultWallet?: Wallet | null;
+  openingCash?: Money | null;
+  openingDigital?: Money | null;
 }

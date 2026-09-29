@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { BudgetPeriod, TransactionType } from 'src/shared/domain/enums';
+import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { DEFAULT_TIMEZONE } from 'src/shared/utils/date.util';
 import { Money } from 'src/shared/utils/money';
 import { normalizeText, tokenize } from 'src/shared/utils/string-normalizer';
@@ -9,8 +9,12 @@ import { extractAmount } from './amount.tokenizer';
 import { extractDate } from './date.tokenizer';
 import { extractDateRange } from './date-range.tokenizer';
 import {
+  BALANCE_WORDS,
   BUDGET_WORDS,
+  CASH_WALLET_WORDS,
+  DEFAULT_WORDS,
   DELETE_WORDS,
+  DIGITAL_WALLET_WORDS,
   EDIT_WORDS,
   EXPENSE_VERBS,
   EXPORT_WORDS,
@@ -20,6 +24,8 @@ import {
   STOPWORDS,
   SUMMARY_WORDS,
 } from './keywords';
+
+const WALLET_WORDS = [...CASH_WALLET_WORDS, ...DIGITAL_WALLET_WORDS];
 
 /**
  * Deterministic, dictionary + regex based parser. No external services.
@@ -58,12 +64,26 @@ export class RuleBasedParser extends MessageParser {
     if (tokens.has('reset') || /\bhapus semua\b|\breset data\b/.test(normalized)) {
       return { type: IntentType.ResetData, raw };
     }
+    if (tokens.has('saldo') && tokens.has('awal')) {
+      return {
+        type: IntentType.SetOpeningBalance,
+        raw,
+        wallet: this.detectWallet(tokens),
+        amount: extractAmount(raw)?.amount ?? null,
+      };
+    }
+    if (has(DEFAULT_WORDS) && this.detectWallet(tokens) !== null) {
+      return { type: IntentType.SetDefaultWallet, raw, wallet: this.detectWallet(tokens) };
+    }
     if (has(DELETE_WORDS)) {
       return { type: IntentType.DeleteTransaction, raw };
     }
     if (has(SUMMARY_WORDS)) {
       const customRange = extractDateRange(raw, now, tz) ?? undefined;
       return { type: IntentType.Summary, raw, period: this.detectPeriod(normalized), customRange };
+    }
+    if (has(BALANCE_WORDS)) {
+      return { type: IntentType.Balance, raw };
     }
     if (has(EXPORT_WORDS)) {
       const customRange = extractDateRange(raw, now, tz) ?? undefined;
@@ -85,7 +105,8 @@ export class RuleBasedParser extends MessageParser {
         type: IntentType.EditTransaction,
         raw,
         amount: extractAmount(raw)?.amount ?? null,
-        keywords: this.extractKeywords(raw, EDIT_WORDS),
+        keywords: this.extractKeywords(raw, [...EDIT_WORDS, ...WALLET_WORDS]),
+        wallet: this.detectWallet(tokens),
       };
     }
 
@@ -101,7 +122,8 @@ export class RuleBasedParser extends MessageParser {
       ? this.removeSpan(withoutDate, amountMatch.start, amountMatch.end)
       : withoutDate;
 
-    const keywords = this.buildKeywords(withoutAmount);
+    const wallet = this.detectWallet(tokens);
+    const keywords = this.buildKeywords(this.dropWords(withoutAmount, WALLET_WORDS));
     const description = keywords.length > 0 ? keywords[0] : '';
 
     const hasExpenseVerb = EXPENSE_VERBS.some((v) =>
@@ -127,6 +149,7 @@ export class RuleBasedParser extends MessageParser {
         description,
         keywords,
         occurredAt,
+        wallet,
       };
     }
 
@@ -140,6 +163,7 @@ export class RuleBasedParser extends MessageParser {
         description,
         keywords,
         occurredAt,
+        wallet,
       };
     }
 
@@ -151,6 +175,13 @@ export class RuleBasedParser extends MessageParser {
   }
 
   // ---- Helpers ----
+
+  /** First wallet word found in the message, or null when none is named. */
+  private detectWallet(tokens: Set<string>): Wallet | null {
+    if (CASH_WALLET_WORDS.some((w) => tokens.has(w))) return Wallet.CASH;
+    if (DIGITAL_WALLET_WORDS.some((w) => tokens.has(w))) return Wallet.DIGITAL;
+    return null;
+  }
 
   private detectPeriod(normalized: string): SummaryPeriod {
     if (/\bhari\s*ini\b|\bharian\b|\bhari\b|\btoday\b/.test(normalized)) {
@@ -191,6 +222,14 @@ export class RuleBasedParser extends MessageParser {
       : raw;
     const stripped = this.stripWords(withoutAmount, commandWords);
     return this.buildKeywords(stripped);
+  }
+
+  /** Remove only the given whole words from text. */
+  private dropWords(text: string, words: string[]): string {
+    const remove = new Set(words);
+    return tokenize(text)
+      .filter((t) => !remove.has(t))
+      .join(' ');
   }
 
   /** Remove whole-word occurrences of `words` (and period words) from text. */

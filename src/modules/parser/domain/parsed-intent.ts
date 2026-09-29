@@ -1,4 +1,4 @@
-import { BudgetPeriod, TransactionType } from 'src/shared/domain/enums';
+import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 
 export enum IntentType {
@@ -9,6 +9,9 @@ export enum IntentType {
   DeleteTransaction = 'DELETE_TRANSACTION',
   Export = 'EXPORT',
   ResetData = 'RESET_DATA',
+  Balance = 'BALANCE',
+  SetOpeningBalance = 'SET_OPENING_BALANCE',
+  SetDefaultWallet = 'SET_DEFAULT_WALLET',
   Help = 'HELP',
   Greeting = 'GREETING',
   /** A bare amount ("25 ribu") — used to complete a pending clarification. */
@@ -37,6 +40,8 @@ export interface RecordTransactionIntent extends BaseIntent {
   /** Candidate keywords for category resolution (most specific first). */
   keywords: string[];
   occurredAt: Date;
+  /** Wallet named in the message, or null when not stated. */
+  wallet: Wallet | null;
 }
 
 /** Explicit start/end range (from "dari … sampai …"), overrides `period`. */
@@ -64,6 +69,8 @@ export interface EditTransactionIntent extends BaseIntent {
   amount: Money | null;
   /** New category keywords if the user provided any. */
   keywords: string[];
+  /** New wallet if the user named one. */
+  wallet: Wallet | null;
 }
 
 export interface DeleteTransactionIntent extends BaseIntent {
@@ -78,6 +85,21 @@ export interface ExportIntent extends BaseIntent {
 
 export interface ResetDataIntent extends BaseIntent {
   type: IntentType.ResetData;
+}
+
+export interface BalanceIntent extends BaseIntent {
+  type: IntentType.Balance;
+}
+
+export interface SetOpeningBalanceIntent extends BaseIntent {
+  type: IntentType.SetOpeningBalance;
+  wallet: Wallet | null;
+  amount: Money | null;
+}
+
+export interface SetDefaultWalletIntent extends BaseIntent {
+  type: IntentType.SetDefaultWallet;
+  wallet: Wallet | null;
 }
 
 export interface HelpIntent extends BaseIntent {
@@ -105,6 +127,9 @@ export type ParsedIntent =
   | DeleteTransactionIntent
   | ExportIntent
   | ResetDataIntent
+  | BalanceIntent
+  | SetOpeningBalanceIntent
+  | SetDefaultWalletIntent
   | HelpIntent
   | GreetingIntent
   | AmountOnlyIntent

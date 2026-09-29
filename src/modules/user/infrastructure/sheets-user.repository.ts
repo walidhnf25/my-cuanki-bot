@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { cellBoolean, cellDate, cellRequiredString, cellString, dateCell } from 'src/sheets/cells';
+import {
+  cellBoolean,
+  cellDate,
+  cellOptionalMoney,
+  cellRequiredString,
+  cellString,
+  cellWallet,
+  dateCell,
+  moneyCell,
+} from 'src/sheets/cells';
 import { SheetsClient } from 'src/sheets/sheets.client';
 import { SheetRecord, SheetRow } from 'src/sheets/sheets.schema';
 import { DEFAULT_TIMEZONE } from 'src/shared/utils/date.util';
@@ -19,6 +28,9 @@ function toEntity(data: SheetRecord): UserEntity {
     currency: cellString(data.currency) ?? 'IDR',
     timezone: cellString(data.timezone) ?? DEFAULT_TIMEZONE,
     isOnboarded: cellBoolean(data.is_onboarded),
+    defaultWallet: cellWallet(data.default_wallet),
+    openingCash: cellOptionalMoney(data.opening_cash),
+    openingDigital: cellOptionalMoney(data.opening_digital),
     createdAt,
     updatedAt: cellDate(data.updated_at) ?? createdAt,
   };
@@ -35,6 +47,9 @@ function toRecord(user: UserEntity): SheetRecord {
     is_onboarded: user.isOnboarded,
     created_at: dateCell(user.createdAt),
     updated_at: dateCell(user.updatedAt),
+    default_wallet: user.defaultWallet,
+    opening_cash: user.openingCash ? moneyCell(user.openingCash) : null,
+    opening_digital: user.openingDigital ? moneyCell(user.openingDigital) : null,
   };
 }
 
@@ -76,6 +91,9 @@ export class SheetsUserRepository extends UserRepository {
       currency: 'IDR',
       timezone: DEFAULT_TIMEZONE,
       isOnboarded: false,
+      defaultWallet: null,
+      openingCash: null,
+      openingDigital: null,
       createdAt: now,
       updatedAt: now,
     };

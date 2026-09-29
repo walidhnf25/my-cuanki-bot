@@ -4,13 +4,20 @@ import { BudgetAlert } from 'src/modules/budget/domain/budget-alert';
 import { IntentType, ParsedIntent } from 'src/modules/parser/domain/parsed-intent';
 import { SummaryResult } from 'src/modules/report/domain/summary.types';
 import { TransactionResult } from 'src/modules/transaction/application/transaction.service';
-import { BudgetPeriod, TransactionType } from 'src/shared/domain/enums';
+import { WalletOverview } from 'src/modules/wallet/application/wallet.service';
+import { BudgetPeriod, TransactionType, Wallet } from 'src/shared/domain/enums';
 import { formatDate } from 'src/shared/utils/date.util';
+import { Money } from 'src/shared/utils/money';
 
 const BUDGET_PERIOD_WORD: Record<BudgetPeriod, string> = {
   [BudgetPeriod.DAILY]: 'harian',
   [BudgetPeriod.WEEKLY]: 'mingguan',
   [BudgetPeriod.MONTHLY]: 'bulanan',
+};
+
+const WALLET_LABEL: Record<Wallet, string> = {
+  [Wallet.CASH]: '💵 Cash',
+  [Wallet.DIGITAL]: '📱 Digital',
 };
 
 /**
@@ -111,6 +118,7 @@ export class ReplyBuilder {
       '',
       `${label}: *${t.amount.format()}*`,
       `📂 ${this.categoryLabel(category?.name, category?.icon)}`,
+      ...(t.wallet ? [`👛 ${WALLET_LABEL[t.wallet]}`] : []),
       `📝 ${t.description}`,
       `📅 ${formatDate(t.occurredAt, timezone)}`,
     ].join('\n');
@@ -124,6 +132,7 @@ export class ReplyBuilder {
       '',
       `${label}: *${t.amount.format()}*`,
       `📂 ${this.categoryLabel(category?.name, category?.icon)}`,
+      ...(t.wallet ? [`👛 ${WALLET_LABEL[t.wallet]}`] : []),
       `📅 ${formatDate(t.occurredAt, timezone)}`,
     ].join('\n');
   }
@@ -142,7 +151,7 @@ export class ReplyBuilder {
     return 'Belum ada transaksi yang bisa dihapus. 🙂';
   }
 
-  summary(result: SummaryResult): string {
+  summary(result: SummaryResult, wallets?: WalletOverview): string {
     const lines = [
       `📊 *Ringkasan ${result.periodLabel}*`,
       '',
@@ -160,7 +169,45 @@ export class ReplyBuilder {
       lines.push('', '_Belum ada pengeluaran pada periode ini._');
     }
 
+    if (wallets?.enabled) {
+      lines.push('', '👛 *Per dompet:*');
+      for (const l of wallets.lines) {
+        lines.push(
+          `${WALLET_LABEL[l.wallet]}: masuk ${l.income.format()} · keluar ${l.expense.format()} · saldo ${l.balance.format()}`,
+        );
+      }
+    }
+
     return lines.join('\n');
+  }
+
+  balance(overview: WalletOverview): string {
+    const lines = [
+      '👛 *Saldo Dompet*',
+      '',
+      ...overview.lines.map((l) => `${WALLET_LABEL[l.wallet]}: ${l.balance.format()}`),
+      `💰 Total: *${overview.total.format()}*`,
+    ];
+    if (!overview.enabled) {
+      lines.push('', '_Atur saldo awal: saldo awal cash 200rb_');
+    }
+    return lines.join('\n');
+  }
+
+  openingBalanceSet(wallet: Wallet, amount: Money): string {
+    return `✅ Saldo awal ${WALLET_LABEL[wallet]} diatur: *${amount.format()}*`;
+  }
+
+  askOpeningBalance(): string {
+    return 'Sebutkan dompet dan nominalnya. Contoh: _saldo awal cash 200rb_ atau _saldo awal digital 1 juta_';
+  }
+
+  defaultWalletSet(wallet: Wallet): string {
+    return `✅ Dompet default diatur ke ${WALLET_LABEL[wallet]}. Transaksi tanpa keterangan dompet akan masuk ke sini.`;
+  }
+
+  askDefaultWallet(): string {
+    return 'Pilih dompet default: _default cash_ atau _default digital_';
   }
 
   budgetSet(result: SetBudgetResult): string {
@@ -223,6 +270,14 @@ export class ReplyBuilder {
       '*📊 Ringkasan:*',
       '• _ringkasan hari ini / minggu ini / bulan ini_',
       '• _ringkasan 13/07/2026 - 14/07/2026_',
+      '',
+      '*👛 Dompet (cash / digital):*',
+      '• _beli kopi 25rb cash_',
+      '• _gaji 5 juta transfer_ (juga: qris, gopay, ovo, debit)',
+      '• _saldo_ (lihat saldo tiap dompet)',
+      '• _saldo awal cash 200rb_',
+      '• _default digital_ (dompet jika tidak disebut)',
+      '• _edit ke digital_ (ubah dompet transaksi terakhir)',
       '',
       '*🎯 Budget:*',
       '• _budget makan 2 juta_',

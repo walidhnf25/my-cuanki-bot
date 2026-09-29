@@ -35,6 +35,7 @@ function txEntity(over: Partial<TransactionEntity> = {}): TransactionEntity {
     occurredAt: new Date('2026-07-15T05:00:00.000Z'),
     sourceMessage: 'beli kopi 25rb',
     messageId: '1001:1',
+    wallet: null,
     deletedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -51,6 +52,7 @@ function recordIntent(over: Partial<RecordTransactionIntent> = {}): RecordTransa
     description: 'kopi',
     keywords: ['kopi'],
     occurredAt: new Date('2026-07-15T05:00:00.000Z'),
+    wallet: null,
     ...over,
   };
 }
@@ -73,6 +75,8 @@ describe('TransactionService', () => {
       existsByMessageId: jest.fn(),
       sumByType: jest.fn(),
       sumByCategory: jest.fn(),
+      sumByWallet: jest.fn(),
+      hasExplicitWallet: jest.fn(),
     };
     categories = { findById: jest.fn() } as unknown as jest.Mocked<CategoryRepository>;
     resolver = { resolve: jest.fn() } as unknown as jest.Mocked<CategoryResolver>;
@@ -135,6 +139,7 @@ describe('TransactionService', () => {
         raw: 'edit jadi 30rb',
         amount: Money.fromMajor(30000),
         keywords: [],
+        wallet: null,
       };
       const result = await service.editLast('u1', intent);
 

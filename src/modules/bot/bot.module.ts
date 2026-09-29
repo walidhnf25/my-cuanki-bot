@@ -6,6 +6,7 @@ import { ParserModule } from '../parser/parser.module';
 import { ReportModule } from '../report/report.module';
 import { TransactionModule } from '../transaction/transaction.module';
 import { UserModule } from '../user/user.module';
+import { WalletModule } from '../wallet/wallet.module';
 import { IncomingMessageHandler } from './application/incoming-message.handler';
 import { MessageDedupeService } from './application/message-dedupe.service';
 import { MessageOrchestrator } from './application/message-orchestrator';
@@ -29,6 +30,7 @@ import { TelegramPoller } from './infrastructure/telegram.poller';
     ConversationModule,
     BudgetModule,
     ReportModule,
+    WalletModule,
   ],
   controllers: [TelegramWebhookController],
   providers: [

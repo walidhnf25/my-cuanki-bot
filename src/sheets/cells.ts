@@ -2,6 +2,7 @@ import dayjs from 'dayjs';
 import timezone from 'dayjs/plugin/timezone';
 import utc from 'dayjs/plugin/utc';
 import { DEFAULT_TIMEZONE } from 'src/shared/utils/date.util';
+import { Wallet } from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { Cell } from './sheets.schema';
 
@@ -41,6 +42,17 @@ export function cellBoolean(value: Cell | undefined): boolean {
 export function cellMoney(value: Cell | undefined): Money {
   const n = cellNumber(value);
   return n === null ? Money.zero() : Money.fromMajor(n);
+}
+
+/** Blank or unrecognised => null (callers treat null as the legacy CASH wallet). */
+export function cellWallet(value: Cell | undefined): Wallet | null {
+  const s = cellString(value)?.toUpperCase();
+  return s === Wallet.CASH || s === Wallet.DIGITAL ? s : null;
+}
+
+export function cellOptionalMoney(value: Cell | undefined): Money | null {
+  const n = cellNumber(value);
+  return n === null ? null : Money.fromMajor(n);
 }
 
 export function cellDate(value: Cell | undefined): Date | null {
