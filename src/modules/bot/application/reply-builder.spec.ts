@@ -125,6 +125,23 @@ describe('ReplyBuilder', () => {
     expect(replies.compose({ type: IntentType.Help, raw: 'help' })).toContain('Menu Cuanki');
   });
 
+  it('lists cash, digital, transfer and balance commands in separate sections', () => {
+    const help = replies.compose({ type: IntentType.Help, raw: 'help' });
+    const cash = help.indexOf('Dompet Cash');
+    const digital = help.indexOf('Dompet Digital');
+    const transfer = help.indexOf('Transfer antar dompet');
+    const balance = help.indexOf('Saldo & pengaturan dompet');
+
+    expect(cash).toBeGreaterThan(-1);
+    expect(cash).toBeLessThan(digital);
+    expect(digital).toBeLessThan(transfer);
+    expect(transfer).toBeLessThan(balance);
+    // Each section keeps its own examples.
+    expect(help.slice(cash, digital)).toContain('tunai');
+    expect(help.slice(digital, transfer)).toContain('qris');
+    expect(help.slice(transfer, balance)).toContain('tarik tunai');
+  });
+
   it('falls back for unknown input', () => {
     expect(replies.compose({ type: IntentType.Unknown, raw: 'xyz' })).toContain('help');
   });
