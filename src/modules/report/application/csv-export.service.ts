@@ -193,6 +193,49 @@ function addWalletBreakdown(
 }
 
 /** Per-wallet table: money in/out over the period and the current balance. */
+/**
+ * Two-wallet balance ledger: Awal Periode + Pemasukan - Pengeluaran + Transfer = Saldo,
+ * so every wallet balance can be traced. Uses all six sheet columns.
+ */
+function addWalletLedger(
+  sheet: ExcelJS.Worksheet,
+  startRow: number,
+  overview: WalletOverview,
+): number {
+  const header = sheet.getRow(startRow);
+  header.values = ['Per Dompet', 'Awal Periode', 'Pemasukan', 'Pengeluaran', 'Transfer', 'Saldo'];
+  styleHeader(header, COLOR.primary, 6);
+
+  let r = startRow + 1;
+  overview.lines.forEach((line, i) => {
+    const row = sheet.getRow(r);
+    row.getCell(1).value = WALLET_NAME[line.wallet];
+    row.getCell(2).value = toRupiah(line.startBalance);
+    row.getCell(3).value = toRupiah(line.income);
+    row.getCell(4).value = toRupiah(line.expense);
+    row.getCell(5).value = toRupiah(line.transferIn.subtract(line.transferOut));
+    row.getCell(6).value = toRupiah(line.balance);
+    for (let c = 2; c <= 6; c++) row.getCell(c).numFmt = RUPIAH_FORMAT;
+    row.getCell(6).font = { bold: true };
+    for (let c = 1; c <= 6; c++) {
+      row.getCell(c).border = BORDER;
+      if (i % 2 === 1) row.getCell(c).fill = fill(COLOR.stripe);
+    }
+    r++;
+  });
+
+  const total = sheet.getRow(r);
+  total.getCell(1).value = 'Total Saldo';
+  total.getCell(6).value = toRupiah(overview.total);
+  total.getCell(6).numFmt = RUPIAH_FORMAT;
+  for (let c = 1; c <= 6; c++) {
+    total.getCell(c).font = { bold: true };
+    total.getCell(c).fill = fill(COLOR.stripe);
+    total.getCell(c).border = BORDER;
+  }
+  return r + 2;
+}
+
 function addWalletTable(
   sheet: ExcelJS.Worksheet,
   startRow: number,
@@ -288,7 +331,7 @@ export class CsvExportService {
       { width: 18 },
       { width: 34 },
       { width: 20 },
-      ...(showWallets ? [{ width: 12 }] : []),
+      ...(showWallets ? [{ width: 16 }] : []),
     ];
 
     // ---- Title ----
@@ -404,7 +447,9 @@ export class CsvExportService {
 
     let next = bandRow + cards.length + 2;
     if (wallets?.enabled) {
-      next = addWalletTable(sheet, next, wallets);
+      next = showWallets
+        ? addWalletLedger(sheet, next, wallets)
+        : addWalletTable(sheet, next, wallets);
       if (wallets.transfers.length > 0) {
         next = addTransferTable(sheet, next, wallets.transfers, tz);
       }

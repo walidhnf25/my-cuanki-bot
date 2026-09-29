@@ -153,6 +153,81 @@ describe('WalletService', () => {
     expect(transactions.sumByCategory).not.toHaveBeenCalled();
   });
 
+  describe('start of period balance', () => {
+    it('rewinds the current balance by the period movements so the ledger adds up', async () => {
+      users.findById.mockResolvedValue(user({ openingCash: Money.fromMajor(34000) }));
+      // Period (September): cash +50.000 -20.000; all time: +200.000 -80.000.
+      transactions.sumByWallet.mockImplementation((_u, range) =>
+        Promise.resolve(
+          range
+            ? {
+                [Wallet.CASH]: { income: Money.fromMajor(50000), expense: Money.fromMajor(20000) },
+                [Wallet.DIGITAL]: zero(),
+              }
+            : {
+                [Wallet.CASH]: { income: Money.fromMajor(200000), expense: Money.fromMajor(80000) },
+                [Wallet.DIGITAL]: zero(),
+              },
+        ),
+      );
+      // Transfers: period +30.000 -5.000; all time +40.000 -15.000.
+      transfers.sumByWallet.mockImplementation((_u, range) =>
+        Promise.resolve({
+          [Wallet.CASH]: range
+            ? { in: Money.fromMajor(30000), out: Money.fromMajor(5000) }
+            : { in: Money.fromMajor(40000), out: Money.fromMajor(15000) },
+          [Wallet.DIGITAL]: { in: Money.zero(), out: Money.zero() },
+        }),
+      );
+
+      const overview = await service.overview(
+        'u1',
+        SummaryPeriod.Month,
+        new Date('2026-09-15T03:00:00Z'),
+        'Asia/Jakarta',
+      );
+      const cash = overview.lines[0];
+
+      // 34.000 + 200.000 - 80.000 + 40.000 - 15.000
+      expect(cash.balance.toNumber()).toBe(179000);
+      // 179.000 - 50.000 + 20.000 - 30.000 + 5.000
+      expect(cash.startBalance.toNumber()).toBe(124000);
+      expect(
+        cash.startBalance
+          .add(cash.income)
+          .subtract(cash.expense)
+          .add(cash.transferIn)
+          .subtract(cash.transferOut)
+          .equals(cash.balance),
+      ).toBe(true);
+    });
+
+    it('equals the opening balance when every movement falls inside the period', async () => {
+      users.findById.mockResolvedValue(user({ openingDigital: Money.fromMajor(522000) }));
+      const same = {
+        [Wallet.CASH]: zero(),
+        [Wallet.DIGITAL]: { income: Money.zero(), expense: Money.fromMajor(20000) },
+      };
+      transactions.sumByWallet.mockResolvedValue(same);
+
+      const overview = await service.overview(
+        'u1',
+        SummaryPeriod.Month,
+        new Date('2026-09-15T03:00:00Z'),
+        'Asia/Jakarta',
+      );
+      const digital = overview.lines[1];
+      expect(digital.balance.toNumber()).toBe(502000);
+      expect(digital.startBalance.toNumber()).toBe(522000);
+    });
+
+    it('is simply the opening balance for current()', async () => {
+      users.findById.mockResolvedValue(user({ openingCash: Money.fromMajor(34000) }));
+      const cash = (await service.current('u1')).lines[0];
+      expect(cash.startBalance.toNumber()).toBe(34000);
+    });
+  });
+
   describe('wallet mode', () => {
     it('is off for a user who never chose or used wallets', async () => {
       const overview = await service.current('u1');

@@ -16,6 +16,11 @@ export interface WalletLine {
   /** Money in / out over the reported window (all time for {@link WalletService.current}). */
   income: Money;
   expense: Money;
+  /**
+   * Balance when the reported window began, so that
+   * startBalance + income - expense + transferIn - transferOut = balance.
+   */
+  startBalance: Money;
   /** Transfers received / sent over the reported window. */
   transferIn: Money;
   transferOut: Money;
@@ -213,19 +218,27 @@ export class WalletService {
     // Legacy users (no stored mode) are on once they have used a wallet feature.
     const mode = user?.walletMode ?? (implicit ? WalletMode.BOTH : null);
 
-    const lines: WalletLine[] = activeWallets(mode).map((wallet) => ({
-      wallet,
-      income: shown[wallet].income,
-      expense: shown[wallet].expense,
-      transferIn: movedShown[wallet].in,
-      transferOut: movedShown[wallet].out,
-      categories: [],
-      balance: (user ? (opening(user, wallet) ?? Money.zero()) : Money.zero())
+    const lines: WalletLine[] = activeWallets(mode).map((wallet) => {
+      const balance = (user ? (opening(user, wallet) ?? Money.zero()) : Money.zero())
         .add(allTime[wallet].income)
         .subtract(allTime[wallet].expense)
         .add(moved[wallet].in)
-        .subtract(moved[wallet].out),
-    }));
+        .subtract(moved[wallet].out);
+      return {
+        wallet,
+        startBalance: balance
+          .subtract(shown[wallet].income)
+          .add(shown[wallet].expense)
+          .subtract(movedShown[wallet].in)
+          .add(movedShown[wallet].out),
+        income: shown[wallet].income,
+        expense: shown[wallet].expense,
+        transferIn: movedShown[wallet].in,
+        transferOut: movedShown[wallet].out,
+        categories: [],
+        balance,
+      };
+    });
 
     return {
       mode,

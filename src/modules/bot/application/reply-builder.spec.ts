@@ -87,6 +87,7 @@ describe('ReplyBuilder', () => {
       income: Money.zero(),
       expense: Money.zero(),
       balance: Money.fromMajor(1000),
+      startBalance: Money.zero(),
       transferIn: wallet === Wallet.DIGITAL ? Money.fromMajor(500) : Money.zero(),
       transferOut: Money.zero(),
       categories:
@@ -117,9 +118,10 @@ describe('ReplyBuilder', () => {
     expect(replies.summary(summary, { ...overview, mode: null, enabled: false })).toContain(
       '💵 Saldo: Rp50',
     );
-    expect(text).toContain('Cash: saldo *Rp1.000*');
-    expect(text).toContain('⬆️ Masuk Rp0');
-    expect(text).toContain('⬇️ Keluar Rp0');
+    expect(text).toContain('💰 Saldo: *Rp1.000*');
+    expect(text).toContain('🏁 Awal periode: Rp0');
+    expect(text).toContain('⬆️ Masuk: Rp0');
+    expect(text).toContain('⬇️ Keluar: Rp0');
 
     // Categories are listed under their own wallet, in wallet order.
     expect(text.indexOf('Cash')).toBeLessThan(text.indexOf('Makanan: Rp75.000'));
@@ -150,6 +152,7 @@ describe('ReplyBuilder', () => {
           wallet: Wallet.CASH,
           income: Money.zero(),
           expense: Money.zero(),
+          startBalance: Money.zero(),
           transferIn: Money.zero(),
           transferOut: Money.zero(),
           balance: Money.fromMajor(29000),
@@ -164,6 +167,63 @@ describe('ReplyBuilder', () => {
     expect(text).not.toContain('Per dompet');
     expect(text).toContain('Makanan: Rp50');
     expect(text).toContain('Saldo 💵 Cash: *Rp29.000*');
+  });
+
+  it('shows a per-wallet ledger that adds up to the balance', () => {
+    const summary = {
+      periodLabel: 'Bulan Ini',
+      range: { start: new Date(), end: new Date() },
+      income: Money.fromMajor(50000),
+      expense: Money.fromMajor(20000),
+      balance: Money.fromMajor(30000),
+      categories: [],
+    };
+    const overview = {
+      mode: WalletMode.BOTH,
+      enabled: true,
+      lines: [
+        {
+          wallet: Wallet.CASH,
+          startBalance: Money.fromMajor(100000),
+          income: Money.fromMajor(50000),
+          expense: Money.fromMajor(20000),
+          transferIn: Money.zero(),
+          transferOut: Money.fromMajor(10000),
+          balance: Money.fromMajor(120000), // 100.000 + 50.000 - 20.000 - 10.000
+          categories: [],
+        },
+        {
+          wallet: Wallet.DIGITAL,
+          startBalance: Money.fromMajor(522000),
+          income: Money.zero(),
+          expense: Money.zero(),
+          transferIn: Money.fromMajor(10000),
+          transferOut: Money.zero(),
+          balance: Money.fromMajor(532000), // 522.000 + 10.000
+          categories: [],
+        },
+      ],
+      total: Money.fromMajor(652000),
+      transfers: [],
+    };
+
+    const text = replies.summary(summary, overview);
+    const cash = text.slice(text.indexOf('Cash'), text.indexOf('Digital'));
+
+    const order = [
+      'Awal periode: Rp100.000',
+      'Masuk: Rp50.000',
+      'Keluar: Rp20.000',
+      'Transfer: masuk Rp0 · keluar Rp10.000',
+      'Saldo: *Rp120.000*',
+    ].map((part) => cash.indexOf(part));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order); // read top to bottom
+
+    const digital = text.slice(text.indexOf('Digital'));
+    expect(digital).toContain('Awal periode: Rp522.000');
+    expect(digital).toContain('Transfer: masuk Rp10.000 · keluar Rp0');
+    expect(digital).toContain('Saldo: *Rp532.000*');
   });
 
   it('describes each wallet mode and explains a refused change', () => {

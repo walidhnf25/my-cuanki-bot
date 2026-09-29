@@ -111,6 +111,7 @@ describe('CsvExportService (xlsx)', () => {
           income: Money.fromMajor(100000),
           expense: Money.fromMajor(25000),
           balance: Money.fromMajor(75000),
+          startBalance: Money.zero(),
           transferIn: Money.zero(),
           transferOut: Money.zero(),
           categories: [],
@@ -120,6 +121,7 @@ describe('CsvExportService (xlsx)', () => {
           income: Money.zero(),
           expense: Money.fromMajor(10000),
           balance: Money.fromMajor(190000),
+          startBalance: Money.fromMajor(200000),
           transferIn: Money.zero(),
           transferOut: Money.zero(),
           categories: [],
@@ -151,13 +153,28 @@ describe('CsvExportService (xlsx)', () => {
       expect(sheet.getCell('F6').value).toBe('Digital');
 
       // Summary: band 9, cards 10-13, blank, wallet table starts at 15.
-      expect(sheet.getCell('A15').value).toBe('Per Dompet');
+      expect(sheet.getRow(15).values).toEqual([
+        undefined,
+        'Per Dompet',
+        'Awal Periode',
+        'Pemasukan',
+        'Pengeluaran',
+        'Transfer',
+        'Saldo',
+      ]);
+      // Awal Periode + Pemasukan - Pengeluaran + Transfer = Saldo on every row.
+      const ledger = (row: number) =>
+        [2, 3, 4, 5, 6].map((c) => sheet.getRow(row).getCell(c).value as number);
       expect(sheet.getCell('A16').value).toBe('Cash');
-      expect(sheet.getCell('E16').value).toBe(75000);
+      expect(ledger(16)).toEqual([0, 100000, 25000, 0, 75000]);
       expect(sheet.getCell('A17').value).toBe('Digital');
-      expect(sheet.getCell('E17').value).toBe(190000);
+      expect(ledger(17)).toEqual([200000, 0, 10000, 0, 190000]);
+      for (const row of [16, 17]) {
+        const [start, inc, exp, tr, balance] = ledger(row);
+        expect(start + inc - exp + tr).toBe(balance);
+      }
       expect(sheet.getCell('A18').value).toBe('Total Saldo');
-      expect(sheet.getCell('E18').value).toBe(265000);
+      expect(sheet.getCell('F18').value).toBe(265000);
 
       // Expense categories split per wallet, right after the wallet table.
       expect(sheet.getCell('A20').value).toBe('Pengeluaran per Kategori');
@@ -168,6 +185,38 @@ describe('CsvExportService (xlsx)', () => {
       expect(sheet.getCell('C21').value).toBe(25000);
       expect(sheet.getCell('D21').value).toBe(25000);
       expect(sheet.getCell('E21').value).toBe(50000);
+    });
+
+    it('shows the net transfer per wallet in the ledger', async () => {
+      transactions.findManyInRange.mockResolvedValue([tx()]);
+      categories.findById.mockResolvedValue({ name: 'Makanan' } as never);
+      const withTransfer = {
+        ...overview,
+        lines: [
+          {
+            ...overview.lines[0],
+            startBalance: Money.zero(),
+            transferIn: Money.fromMajor(30000),
+            transferOut: Money.fromMajor(5000),
+            balance: Money.fromMajor(100000), // 0 + 100.000 - 25.000 + 25.000
+          },
+          overview.lines[1],
+        ],
+      };
+
+      const out = await service.export(
+        'u1',
+        SummaryPeriod.Month,
+        new Date(),
+        'Asia/Jakarta',
+        undefined,
+        withTransfer,
+      );
+      const sheet = (await load(out.content)).getWorksheet('Transaksi')!;
+      // One transaction row, so the ledger header is on row 14 and Cash on row 15.
+      expect(sheet.getCell('A14').value).toBe('Per Dompet');
+      expect(sheet.getCell('E15').value).toBe(25000);
+      expect(sheet.getCell('F15').value).toBe(100000);
     });
 
     it('lists the period transfers below the wallet table', async () => {

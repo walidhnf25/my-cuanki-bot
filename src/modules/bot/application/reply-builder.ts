@@ -187,17 +187,20 @@ export class ReplyBuilder {
       // Wallet users get the category breakdown split per wallet instead of one list.
       lines.push('', '👛 *Per dompet:*', `💰 Total saldo dompet: *${wallets.total.format()}*`);
       for (const l of wallets.lines) {
+        // awal periode + masuk - keluar + transfer = saldo, so the numbers can be checked.
         lines.push(
           '',
-          `${WALLET_LABEL[l.wallet]}: saldo *${l.balance.format()}*`,
-          `⬆️ Masuk ${l.income.format()}`,
-          `⬇️ Keluar ${l.expense.format()}`,
+          `*${WALLET_LABEL[l.wallet]}*`,
+          `🏁 Awal periode: ${l.startBalance.format()}`,
+          `⬆️ Masuk: ${l.income.format()}`,
+          `⬇️ Keluar: ${l.expense.format()}`,
         );
         if (!l.transferIn.isZero() || !l.transferOut.isZero()) {
           lines.push(
             `🔁 Transfer: masuk ${l.transferIn.format()} · keluar ${l.transferOut.format()}`,
           );
         }
+        lines.push(`💰 Saldo: *${l.balance.format()}*`);
         if (l.categories.length > 0) {
           lines.push('📂 Pengeluaran per kategori:');
           for (const c of l.categories) {
