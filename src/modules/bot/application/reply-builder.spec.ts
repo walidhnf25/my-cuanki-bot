@@ -368,8 +368,7 @@ describe('ReplyBuilder', () => {
       expect(text).toContain('Menu Cuanki');
       expect(text.length).toBeLessThan(1500);
       const bullets = text.split('\n').filter((l) => l.startsWith('• '));
-      // Only the recording examples and the summary hint share a line.
-      expect(bullets.filter((l) => l.includes(' · '))).toHaveLength(1);
+      expect(bullets.filter((l) => l.includes(' · '))).toEqual([]);
     });
 
     it('lists the wallet commands one per line', () => {
@@ -408,18 +407,22 @@ describe('ReplyBuilder', () => {
       }
     });
 
-    it('covers recording, budget and reset', () => {
-      const text = help();
-      for (const command of [
-        'beli kopi 25rb',
-        'makan bakso kemarin 15rb',
-        'gaji 8 juta',
-        'beli ayam 8rb, beli es teh 5rb',
-        'budget makan 2 juta',
-        '_reset_ (hapus semua data)',
+    it('lists the recording examples one per line', () => {
+      const lines = help().split('\n');
+      for (const line of [
+        '• _beli kopi 25rb_',
+        '• _makan bakso kemarin 15rb_',
+        '• _gaji 8 juta_',
+        '• _beli ayam 8rb, beli es teh 5rb_',
       ]) {
-        expect(text).toContain(command);
+        expect(lines).toContain(line);
       }
+    });
+
+    it('covers budget and reset', () => {
+      const text = help();
+      expect(text).toContain('budget makan 2 juta');
+      expect(text).toContain('_reset_ (hapus semua data)');
     });
 
     it('keeps the sections in the order people need them', () => {
