@@ -354,70 +354,77 @@ describe('ReplyBuilder', () => {
 
   describe('help menu', () => {
     const help = () => replies.compose({ type: IntentType.Help, raw: 'help' });
+    const HEADINGS = [
+      'Catat:',
+      'Ringkasan & export:',
+      'Dompet:',
+      'Kelola transaksi terakhir:',
+      'Budget:',
+      'Reset:',
+    ];
 
-    it('is a single, compact message', () => {
+    it('is a single message with one command per line', () => {
       const text = help();
       expect(text).toContain('Menu Cuanki');
-      expect(text.split('\n').length).toBeLessThanOrEqual(26);
-      expect(text.length).toBeLessThan(1200);
+      expect(text.length).toBeLessThan(1500);
+      const bullets = text.split('\n').filter((l) => l.startsWith('• '));
+      // Only the recording examples and the summary hint share a line.
+      expect(bullets.filter((l) => l.includes(' · '))).toHaveLength(1);
     });
 
-    it('still mentions every command, so nothing becomes undiscoverable', () => {
+    it('lists the wallet commands one per line', () => {
+      const text = help();
+      for (const line of [
+        '• _beli kopi 25rb cash_',
+        '• _saldo_',
+        '• _saldo awal cash 200rb_',
+        '• _tarik tunai 500rb_',
+        '• _pindah 300rb dari cash ke digital_',
+        '• _atur dompet_',
+        '• _default digital_',
+      ]) {
+        expect(text.split('\n')).toContain(line);
+      }
+      expect(text).toContain('• _gaji 5 juta transfer_ (juga qris, gopay, ovo, debit)');
+    });
+
+    it('lists summary and export forms, including date ranges', () => {
+      const lines = help().split('\n');
+      expect(lines).toContain('• _ringkasan hari ini / minggu ini / bulan ini_');
+      expect(lines).toContain('• _ringkasan 13/07/2026 - 14/07/2026_');
+      expect(lines).toContain('• _export hari ini / minggu ini / bulan ini_');
+      expect(help()).toContain('atau _13/07/2026 - 14/07/2026_');
+    });
+
+    it('lists the commands for the last transaction one per line', () => {
+      const lines = help().split('\n');
+      for (const line of [
+        '• _edit jadi 30rb_',
+        '• _edit ke digital_',
+        '• _hapus_',
+        '• _hapus transfer_',
+      ]) {
+        expect(lines).toContain(line);
+      }
+    });
+
+    it('covers recording, budget and reset', () => {
       const text = help();
       for (const command of [
         'beli kopi 25rb',
-        'kemarin',
+        'makan bakso kemarin 15rb',
         'gaji 8 juta',
         'beli ayam 8rb, beli es teh 5rb',
-        'ringkasan bulan ini',
-        'export bulan ini',
-        'Excel',
-        'minggu ini',
-        '13/07/2026 - 14/07/2026',
-        'cash',
-        'transfer',
-        'qris',
-        '_saldo_',
-        'saldo awal cash 200rb',
-        'tarik tunai 500rb',
-        'pindah 300rb dari cash ke digital',
-        'atur dompet',
-        'default digital',
-        'edit jadi 30rb',
-        'edit ke digital',
-        '_hapus_',
-        'hapus transfer',
-        'konfirmasi',
         'budget makan 2 juta',
-        '_reset_',
+        '_reset_ (hapus semua data)',
       ]) {
         expect(text).toContain(command);
       }
     });
 
-    it('groups the wallet commands under one heading', () => {
+    it('keeps the sections in the order people need them', () => {
       const text = help();
-      const wallet = text.indexOf('Dompet:');
-      const manage = text.indexOf('Kelola:');
-      expect(wallet).toBeGreaterThan(-1);
-      expect(wallet).toBeLessThan(manage);
-      for (const command of ['cash', 'saldo awal', 'tarik tunai', 'atur dompet']) {
-        const at = text.indexOf(command, wallet);
-        expect(at).toBeGreaterThan(-1);
-        expect(at).toBeLessThan(manage);
-      }
-    });
-
-    it('keeps sections in the order people need them', () => {
-      const text = help();
-      const order = [
-        'Catat:',
-        'Ringkasan & export:',
-        'Dompet:',
-        'Kelola:',
-        'Budget:',
-        'Reset:',
-      ].map((heading) => text.indexOf(heading));
+      const order = HEADINGS.map((heading) => text.indexOf(heading));
       expect(order.every((i) => i > -1)).toBe(true);
       expect([...order].sort((x, y) => x - y)).toEqual(order);
     });
