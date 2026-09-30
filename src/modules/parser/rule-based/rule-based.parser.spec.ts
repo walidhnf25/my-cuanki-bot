@@ -227,6 +227,94 @@ describe('RuleBasedParser', () => {
     });
   });
 
+  describe('several transactions in one message', () => {
+    const manyOf = async (text: string) => {
+      const intent = await parse(text);
+      if (intent.type !== IntentType.RecordMany) throw new Error(`not a batch: ${text}`);
+      return intent;
+    };
+
+    it('reads "beli ayam 8 ribu, beli es teh manis 5 ribu" as two expenses', async () => {
+      const { items } = await manyOf('beli ayam 8 ribu, beli es teh manis 5 ribu');
+
+      expect(items).toHaveLength(2);
+      expect(items.map((i) => i.amount?.toNumber())).toEqual([8000, 5000]);
+      expect(items.map((i) => i.transactionType)).toEqual([
+        TransactionType.EXPENSE,
+        TransactionType.EXPENSE,
+      ]);
+      expect(items[0].keywords).toContain('ayam');
+      expect(items[1].keywords).toContain('es teh manis');
+      expect(items.map((i) => i.raw)).toEqual(['beli ayam 8 ribu', 'beli es teh manis 5 ribu']);
+    });
+
+    it('accepts line breaks, semicolons and three or more items', async () => {
+      expect((await manyOf('beli ayam 8rb\nbeli es teh 5rb')).items).toHaveLength(2);
+      expect((await manyOf('beli ayam 8rb; beli es teh 5rb')).items).toHaveLength(2);
+      const three = await manyOf('kopi 5rb, teh 4rb, roti 3rb');
+      expect(three.items.map((i) => i.amount?.toNumber())).toEqual([5000, 4000, 3000]);
+    });
+
+    it('mixes income and expense', async () => {
+      const { items } = await manyOf('gaji 5 juta, beli kopi 10rb');
+      expect(items.map((i) => i.transactionType)).toEqual([
+        TransactionType.INCOME,
+        TransactionType.EXPENSE,
+      ]);
+    });
+
+    it('does not split a decimal comma inside an amount', async () => {
+      const { items } = await manyOf('beli laptop 1,5jt, beli mouse 200rb');
+      expect(items.map((i) => i.amount?.toNumber())).toEqual([1500000, 200000]);
+    });
+
+    it('gives every item its own date', async () => {
+      const { items } = await manyOf('beli ayam 8rb kemarin, beli teh 5rb');
+      expect(toIsoDate(items[0].occurredAt, TZ)).toBe('2026-07-14');
+      expect(toIsoDate(items[1].occurredAt, TZ)).toBe('2026-07-15');
+    });
+
+    it('applies a wallet named once to the items that name none', async () => {
+      const shared = await manyOf('beli ayam 8rb, beli es teh 5rb cash');
+      expect(shared.items.map((i) => i.wallet)).toEqual([Wallet.CASH, Wallet.CASH]);
+
+      const none = await manyOf('beli ayam 8rb, beli es teh 5rb');
+      expect(none.items.map((i) => i.wallet)).toEqual([null, null]);
+    });
+
+    it('keeps different wallets apart, leaving unnamed items to the default', async () => {
+      const mixed = await manyOf('ayam 8rb cash, teh 5rb qris, roti 3rb');
+      expect(mixed.items.map((i) => i.wallet)).toEqual([Wallet.CASH, Wallet.DIGITAL, null]);
+    });
+
+    it('is not fooled by a list of items sharing one price', async () => {
+      const intent = await parse('beli nasi, ayam 25rb');
+      expect(intent.type).toBe(IntentType.RecordTransaction);
+      if (intent.type !== IntentType.RecordTransaction) return;
+      expect(intent.amount?.toNumber()).toBe(25000);
+    });
+
+    it('keeps a comma before the amount as one transaction', async () => {
+      const intent = await parse('beli kopi, 25rb');
+      expect(intent.type).toBe(IntentType.RecordTransaction);
+    });
+
+    it('needs an amount in every part, otherwise parses the message whole', async () => {
+      expect((await parse('beli ayam 8rb, beli es teh')).type).not.toBe(IntentType.RecordMany);
+      expect((await parse('beli ayam 8rb, 5rb')).type).not.toBe(IntentType.RecordMany);
+    });
+
+    it('leaves commands that contain commas alone', async () => {
+      expect((await parse('ringkasan bulan ini, minggu ini')).type).toBe(IntentType.Summary);
+      expect((await parse('export bulan ini, minggu ini')).type).toBe(IntentType.Export);
+    });
+
+    it('leaves single messages exactly as before', async () => {
+      const intent = await parse('beli kopi 25rb');
+      expect(intent.type).toBe(IntentType.RecordTransaction);
+    });
+  });
+
   describe('wallet setup', () => {
     it.each(['atur dompet', 'pilih dompet', 'setup dompet', 'pengaturan dompet'])(
       'starts the setup question on "%s"',

@@ -60,6 +60,24 @@ export class ConversationService {
     });
   }
 
+  /**
+   * Remember several complete transactions from one message that still need a wallet;
+   * one answer covers all of them.
+   */
+  async awaitWalletBatch(
+    userId: string,
+    batch: PendingTransaction[],
+    messageId: string,
+    now: Date,
+  ): Promise<void> {
+    await this.repository.set({
+      userId,
+      state: ConversationState.AWAITING_WALLET,
+      payload: { batch, messageId },
+      expiresAt: new Date(now.getTime() + CONTEXT_TTL_MS),
+    });
+  }
+
   /** Ask the user to confirm deleting their latest transaction (or transfer). */
   async awaitDeleteConfirm(userId: string, now: Date, target?: 'transfer'): Promise<void> {
     await this.repository.set({

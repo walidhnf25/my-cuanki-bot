@@ -139,6 +139,53 @@ export class ReplyBuilder {
     ].join('\n');
   }
 
+  /** Confirmation for several transactions recorded from one message. */
+  recordedMany(results: TransactionResult[], timezone: string, now: Date): string {
+    const today = formatDate(now, timezone);
+    const lines = results.map(({ transaction: t, category }, i) => {
+      const parts = [
+        `${i + 1}. ${category?.icon ?? '📦'} ${t.description} — *${t.amount.format()}*`,
+        ...(t.wallet ? [WALLET_LABEL[t.wallet]] : []),
+        ...(formatDate(t.occurredAt, timezone) === today
+          ? []
+          : [`📅 ${formatDate(t.occurredAt, timezone)}`]),
+      ];
+      return parts.join(' · ');
+    });
+
+    const total = (type: TransactionType): Money =>
+      results
+        .filter((r) => r.transaction.type === type)
+        .reduce((sum, r) => sum.add(r.transaction.amount), Money.zero());
+    const hasIncome = results.some((r) => r.transaction.type === TransactionType.INCOME);
+    const hasExpense = results.some((r) => r.transaction.type === TransactionType.EXPENSE);
+
+    return [
+      `✅ *${results.length} transaksi dicatat!*`,
+      '',
+      ...lines,
+      '',
+      ...(hasIncome ? [`💰 Pemasukan: ${total(TransactionType.INCOME).format()}`] : []),
+      ...(hasExpense ? [`💸 Pengeluaran: ${total(TransactionType.EXPENSE).format()}`] : []),
+    ].join('\n');
+  }
+
+  askWalletBatch(items: Array<{ description: string; amount: Money | null }>): string {
+    return [
+      `👛 Pakai dompet apa untuk ${items.length} transaksi ini?`,
+      ...items.map((i) =>
+        `• ${i.description || 'transaksi'} ${i.amount?.format() ?? ''}`.trimEnd(),
+      ),
+      '',
+      'Balas *cash* atau *digital*.',
+      '_Tip: atur default dengan_ default digital',
+    ].join('\n');
+  }
+
+  tooManyItems(max: number): string {
+    return `Maksimal ${max} transaksi dalam satu pesan. Kirim sisanya di pesan terpisah ya. 🙂`;
+  }
+
   edited(result: TransactionResult, timezone: string): string {
     const { transaction: t, category } = result;
     const label = t.type === TransactionType.INCOME ? 'Pemasukan' : 'Pengeluaran';
@@ -419,6 +466,7 @@ export class ReplyBuilder {
       '• _beli kopi 25rb_',
       '• _isi bensin 100rb_',
       '• _makan bakso kemarin 15rb_',
+      '• _beli ayam 8rb, beli es teh 5rb_ (banyak sekaligus, pisahkan dengan koma)',
       '',
       '*💰 Catat pemasukan:*',
       '• _gaji 8 juta_',

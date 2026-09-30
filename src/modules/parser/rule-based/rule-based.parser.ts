@@ -4,10 +4,17 @@ import { DEFAULT_TIMEZONE } from 'src/shared/utils/date.util';
 import { Money } from 'src/shared/utils/money';
 import { normalizeText, tokenize } from 'src/shared/utils/string-normalizer';
 import { MessageParser, ParseInput } from '../domain/message-parser.port';
-import { IntentType, ParsedIntent, SummaryPeriod } from '../domain/parsed-intent';
+import {
+  IntentType,
+  ParsedIntent,
+  RecordManyIntent,
+  RecordTransactionIntent,
+  SummaryPeriod,
+} from '../domain/parsed-intent';
 import { extractAmount } from './amount.tokenizer';
 import { extractDate } from './date.tokenizer';
 import { extractDateRange } from './date-range.tokenizer';
+import { splitSegments } from './segments';
 import {
   BALANCE_WORDS,
   BOTH_WALLET_WORDS,
@@ -61,6 +68,37 @@ export class RuleBasedParser extends MessageParser {
   }
 
   private parseSync(input: ParseInput): ParsedIntent {
+    return this.parseMany(input) ?? this.parseOne(input);
+  }
+
+  /**
+   * A message listing several transactions. Only counts when the message splits into
+   * two or more parts and every part is a complete transaction (has an amount);
+   * otherwise it is parsed as a single message, exactly as before.
+   */
+  private parseMany(input: ParseInput): RecordManyIntent | null {
+    const raw = input.text.trim();
+    const segments = splitSegments(raw);
+    if (segments.length < 2) return null;
+
+    const items: RecordTransactionIntent[] = [];
+    for (const segment of segments) {
+      const intent = this.parseOne({ ...input, text: segment });
+      if (intent.type !== IntentType.RecordTransaction || intent.amount === null) return null;
+      items.push(intent);
+    }
+
+    // A wallet named once ("..., beli es teh 5rb cash") covers the items that name none.
+    const named = new Set(items.map((i) => i.wallet).filter((w): w is Wallet => w !== null));
+    const shared = named.size === 1 ? [...named][0] : null;
+    return {
+      type: IntentType.RecordMany,
+      raw,
+      items: items.map((i) => ({ ...i, wallet: i.wallet ?? shared })),
+    };
+  }
+
+  private parseOne(input: ParseInput): ParsedIntent {
     const raw = input.text.trim();
     const now = input.now ?? new Date();
     const tz = input.timezone ?? DEFAULT_TIMEZONE;

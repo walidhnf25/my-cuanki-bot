@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { BudgetService } from 'src/modules/budget/application/budget.service';
+import { BudgetAlert } from 'src/modules/budget/domain/budget-alert';
 import { ConversationService } from 'src/modules/conversation/application/conversation.service';
 import { ConversationContextEntity } from 'src/modules/conversation/domain/conversation-context.entity';
 import { PendingTransaction } from 'src/modules/conversation/domain/pending-transaction';
@@ -11,7 +12,10 @@ import {
 } from 'src/modules/parser/domain/parsed-intent';
 import { CsvExportService } from 'src/modules/report/application/csv-export.service';
 import { ReportService } from 'src/modules/report/application/report.service';
-import { TransactionService } from 'src/modules/transaction/application/transaction.service';
+import {
+  TransactionResult,
+  TransactionService,
+} from 'src/modules/transaction/application/transaction.service';
 import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
 import { WalletService } from 'src/modules/wallet/application/wallet.service';
@@ -28,6 +32,9 @@ import { IncomingMessage } from '../domain/messaging.gateway.port';
 import { ReplyBuilder } from './reply-builder';
 
 const YES_WORDS = ['ya', 'iya', 'yoi', 'yes', 'yup', 'ok', 'oke', 'sip', 'benar', 'y'];
+/** Most transactions accepted in one message. */
+const MAX_BATCH_ITEMS = 15;
+
 /** Answers that skip an opening-balance question. */
 const OPENING_SKIP_WORDS = [
   'lewati',
@@ -181,6 +188,31 @@ export class MessageOrchestrator {
     }
 
     if (context.state === ConversationState.AWAITING_WALLET) {
+      const batchPayload = context.payload as {
+        batch?: PendingTransaction[];
+        messageId?: string;
+      } | null;
+      if (batchPayload?.batch?.length) {
+        const answer = this.parser.parseWallet(message.text);
+        if (answer !== null) {
+          await this.conversation.clear(user.id);
+          return this.recordBatch(
+            user,
+            batchPayload.batch.map((p) => this.pendingToIntent(p, p.wallet ?? answer)),
+            batchPayload.messageId ?? message.messageId,
+            message.timestamp,
+          );
+        }
+        if (this.yesNo(message.text) === 'no') {
+          await this.conversation.clear(user.id);
+          return { text: this.replies.cancelled() };
+        }
+        if (intent.type === IntentType.Unknown || intent.type === IntentType.Greeting) {
+          return { text: this.replies.askWalletRetry() };
+        }
+        return null;
+      }
+
       const pending = context.payload as unknown as PendingTransaction | null;
       if (!pending?.amount) return null;
 
@@ -290,6 +322,13 @@ export class MessageOrchestrator {
           now,
         );
         return { text: this.replies.askAmount(intent.description) };
+      }
+
+      case IntentType.RecordMany: {
+        if (intent.items.length > MAX_BATCH_ITEMS) {
+          return { text: this.replies.tooManyItems(MAX_BATCH_ITEMS) };
+        }
+        return this.recordManyAndReply(user, intent.items, message.messageId, now);
       }
 
       case IntentType.EditTransaction: {
@@ -434,6 +473,91 @@ export class MessageOrchestrator {
       default:
         return { text: this.replies.compose(intent) };
     }
+  }
+
+  /** A transaction that only needs its wallet, rebuilt from the saved conversation state. */
+  private pendingToIntent(p: PendingTransaction, wallet: Wallet | null): RecordTransactionIntent {
+    return {
+      type: IntentType.RecordTransaction,
+      raw: p.raw ?? '',
+      transactionType: p.transactionType,
+      amount: Money.fromMajor(p.amount ?? '0'),
+      description: p.description,
+      keywords: p.keywords,
+      occurredAt: new Date(p.occurredAt),
+      wallet,
+    };
+  }
+
+  /**
+   * Several transactions from one message. Wallets are resolved like a single one
+   * (named, then default); if some still have none and the user uses wallets, ask
+   * once for all of them.
+   */
+  private async recordManyAndReply(
+    user: UserEntity,
+    items: RecordTransactionIntent[],
+    messageId: string,
+    now: Date,
+  ): Promise<OutgoingReply> {
+    const only = this.onlyWallet(user);
+    const resolved = items.map((i) => ({ ...i, wallet: only ?? i.wallet ?? user.defaultWallet }));
+    const missing = resolved.filter((i) => i.wallet === null);
+
+    if (
+      missing.length > 0 &&
+      (user.walletMode === WalletMode.BOTH || (await this.wallets.current(user.id)).enabled)
+    ) {
+      await this.conversation.awaitWalletBatch(
+        user.id,
+        resolved.map((i) => ({
+          transactionType: i.transactionType,
+          description: i.description,
+          keywords: i.keywords,
+          occurredAt: i.occurredAt.toISOString(),
+          wallet: i.wallet,
+          amount: i.amount?.toDecimalString(),
+          raw: i.raw,
+        })),
+        messageId,
+        now,
+      );
+      return { text: this.replies.askWalletBatch(missing) };
+    }
+    return this.recordBatch(user, resolved, messageId, now);
+  }
+
+  /** Record every item (idempotent per item) and reply once, with one set of budget alerts. */
+  private async recordBatch(
+    user: UserEntity,
+    items: RecordTransactionIntent[],
+    messageId: string,
+    now: Date,
+  ): Promise<OutgoingReply> {
+    const results: TransactionResult[] = [];
+    for (const [index, item] of items.entries()) {
+      const result = await this.transactions.record(user.id, item, `${messageId}#${index}`);
+      if (result) results.push(result);
+    }
+    if (results.length === 0) return {};
+
+    // Evaluate once everything is saved, so usage includes the whole batch.
+    const alerts = new Map<string, BudgetAlert>();
+    for (const { transaction } of results) {
+      if (transaction.type !== TransactionType.EXPENSE) continue;
+      for (const alert of await this.budgets.evaluate(
+        user.id,
+        transaction.categoryId,
+        now,
+        user.timezone,
+      )) {
+        alerts.set(`${alert.categoryName}|${alert.period}`, alert);
+      }
+    }
+
+    let text = this.replies.recordedMany(results, user.timezone, now);
+    if (alerts.size > 0) text += `\n\n${this.replies.budgetAlerts([...alerts.values()])}`;
+    return { text };
   }
 
   private async recordAndReply(

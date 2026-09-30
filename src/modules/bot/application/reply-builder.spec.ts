@@ -257,6 +257,101 @@ describe('ReplyBuilder', () => {
     expect(replies.compose({ type: IntentType.Help, raw: 'help' })).toContain('Menu Cuanki');
   });
 
+  describe('recording several transactions', () => {
+    const NOW = new Date('2026-07-15T03:00:00.000Z');
+    const result = (
+      description: string,
+      amount: number,
+      over: Record<string, unknown> = {},
+      category: { name: string; icon: string } | null = { name: 'Makanan', icon: '🍜' },
+    ) =>
+      ({
+        transaction: {
+          id: description,
+          userId: 'u',
+          categoryId: null,
+          type: TransactionType.EXPENSE,
+          amount: Money.fromMajor(amount),
+          description,
+          note: null,
+          occurredAt: NOW,
+          sourceMessage: null,
+          messageId: null,
+          wallet: null,
+          deletedAt: null,
+          createdAt: NOW,
+          updatedAt: NOW,
+          ...over,
+        },
+        category,
+      }) as never;
+
+    it('lists each item and the total', () => {
+      const text = replies.recordedMany(
+        [result('ayam', 8000), result('es teh manis', 5000, {}, { name: 'Minuman', icon: '🥤' })],
+        'Asia/Jakarta',
+        NOW,
+      );
+
+      expect(text).toContain('2 transaksi dicatat');
+      expect(text).toContain('1. 🍜 ayam — *Rp8.000*');
+      expect(text).toContain('2. 🥤 es teh manis — *Rp5.000*');
+      expect(text).toContain('💸 Pengeluaran: Rp13.000');
+      expect(text).not.toContain('Pemasukan');
+    });
+
+    it('shows wallets and dates only when they add information', () => {
+      const text = replies.recordedMany(
+        [
+          result('ayam', 8000),
+          result('teh', 5000, {
+            wallet: Wallet.DIGITAL,
+            occurredAt: new Date('2026-07-14T03:00:00.000Z'),
+          }),
+        ],
+        'Asia/Jakarta',
+        NOW,
+      );
+      const [first, second] = text.split('\n').filter((l) => /^\d\./.test(l));
+
+      expect(first).not.toContain('Digital');
+      expect(first).not.toContain('📅');
+      expect(second).toContain('📱 Digital');
+      expect(second).toContain('📅 14/07/2026');
+    });
+
+    it('totals income and expense separately', () => {
+      const text = replies.recordedMany(
+        [
+          result('gaji', 5000000, { type: TransactionType.INCOME }, null),
+          result('kopi', 10000),
+          result('teh', 5000),
+        ],
+        'Asia/Jakarta',
+        NOW,
+      );
+      expect(text).toContain('💰 Pemasukan: Rp5.000.000');
+      expect(text).toContain('💸 Pengeluaran: Rp15.000');
+      expect(text).toContain('1. 📦 gaji');
+    });
+
+    it('asks once for the wallet, listing only the items that need it', () => {
+      const text = replies.askWalletBatch([
+        { description: 'ayam', amount: Money.fromMajor(8000) },
+        { description: 'es teh manis', amount: Money.fromMajor(5000) },
+      ]);
+      expect(text).toContain('2 transaksi');
+      expect(text).toContain('• ayam Rp8.000');
+      expect(text).toContain('• es teh manis Rp5.000');
+      expect(text).toContain('cash');
+      expect(text).toContain('digital');
+    });
+
+    it('explains the batch limit', () => {
+      expect(replies.tooManyItems(15)).toContain('15');
+    });
+  });
+
   describe('help menu', () => {
     const help = () => replies.compose({ type: IntentType.Help, raw: 'help' });
 
@@ -268,6 +363,10 @@ describe('ReplyBuilder', () => {
       for (const word of ['Dompet Cash', 'Dompet Digital', 'Transfer antar dompet', 'saldo awal']) {
         expect(text).toContain(word);
       }
+    });
+
+    it('mentions recording several transactions at once', () => {
+      expect(help()).toContain('beli ayam 8rb, beli es teh 5rb');
     });
 
     it('covers every everyday command', () => {

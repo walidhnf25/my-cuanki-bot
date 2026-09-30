@@ -13,7 +13,13 @@ import {
 import { ResetUserDataService } from 'src/modules/user/application/reset-user-data.service';
 import { TransactionEntity } from 'src/modules/transaction/domain/transaction.entity';
 import { UserEntity } from 'src/modules/user/domain/user.entity';
-import { ConversationState, TransactionType, Wallet, WalletMode } from 'src/shared/domain/enums';
+import {
+  BudgetPeriod,
+  ConversationState,
+  TransactionType,
+  Wallet,
+  WalletMode,
+} from 'src/shared/domain/enums';
 import { Money } from 'src/shared/utils/money';
 import { IncomingMessage } from '../domain/messaging.gateway.port';
 import { WalletService } from 'src/modules/wallet/application/wallet.service';
@@ -95,6 +101,7 @@ describe('MessageOrchestrator', () => {
       getActive: jest.fn().mockResolvedValue(null),
       awaitAmount: jest.fn().mockResolvedValue(undefined),
       awaitWallet: jest.fn().mockResolvedValue(undefined),
+      awaitWalletBatch: jest.fn().mockResolvedValue(undefined),
       awaitWalletMode: jest.fn().mockResolvedValue(undefined),
       awaitOpeningBalance: jest.fn().mockResolvedValue(undefined),
       awaitDeleteConfirm: jest.fn().mockResolvedValue(undefined),
@@ -796,6 +803,241 @@ describe('MessageOrchestrator', () => {
       const reply = await orchestrator.process(user, msg('default digital'));
       expect(wallets.setDefault).toHaveBeenCalledWith('u1', Wallet.DIGITAL);
       expect(reply.text).toContain('default');
+    });
+  });
+
+  describe('several transactions in one message', () => {
+    const TWO = 'beli ayam 8 ribu, beli es teh manis 5 ribu';
+    const ayam = () => ({
+      transaction: txEntity({ description: 'ayam', amount: Money.fromMajor(8000) }),
+      category,
+    });
+    const esTeh = () => ({
+      transaction: txEntity({ description: 'es teh manis', amount: Money.fromMajor(5000) }),
+      category,
+    });
+    const recordedIntents = () => transactions.record.mock.calls.map((c) => c[1]);
+    const enabled = {
+      mode: WalletMode.BOTH,
+      enabled: true,
+      lines: [],
+      total: Money.zero(),
+      transfers: [],
+    };
+
+    it('records each item and answers once with the total', async () => {
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+      const reply = await orchestrator.process(user, msg(TWO, 'w1'));
+
+      expect(transactions.record).toHaveBeenCalledTimes(2);
+      expect(recordedIntents().map((i) => i.amount?.toNumber())).toEqual([8000, 5000]);
+      expect(recordedIntents().map((i) => i.description)).toEqual(['ayam', 'es teh manis']);
+      expect(reply.text).toContain('2 transaksi dicatat');
+      expect(reply.text).toContain('ayam');
+      expect(reply.text).toContain('es teh manis');
+      expect(reply.text).toContain('Rp13.000');
+    });
+
+    it('gives each item its own idempotency key derived from the message id', async () => {
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+      await orchestrator.process(user, msg(TWO, 'w1'));
+      expect(transactions.record.mock.calls.map((c) => c[2])).toEqual(['w1#0', 'w1#1']);
+    });
+
+    it('sends nothing when every item was already recorded', async () => {
+      transactions.record.mockResolvedValue(null);
+      expect(await orchestrator.process(user, msg(TWO, 'w1'))).toEqual({});
+    });
+
+    it('reports only the items that were new on a partial retry', async () => {
+      transactions.record.mockResolvedValueOnce(null).mockResolvedValueOnce(esTeh());
+      const reply = await orchestrator.process(user, msg(TWO, 'w1'));
+      expect(reply.text).toContain('1 transaksi dicatat');
+      expect(reply.text).not.toContain('ayam');
+    });
+
+    it('checks budgets once after saving, with the same alert shown a single time', async () => {
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+      const alert = {
+        categoryName: 'Makanan',
+        period: BudgetPeriod.MONTHLY,
+        used: Money.fromMajor(90000),
+        limit: Money.fromMajor(100000),
+        percent: 90,
+        exceeded: false,
+      };
+      budgets.evaluate.mockResolvedValue([alert]);
+
+      const reply = await orchestrator.process(user, msg(TWO, 'w1'));
+
+      expect(budgets.evaluate).toHaveBeenCalledTimes(2); // once per expense, after both saved
+      expect(budgets.evaluate.mock.invocationCallOrder[0]).toBeGreaterThan(
+        transactions.record.mock.invocationCallOrder[1],
+      );
+      expect(reply.text?.match(/Budget/g)).toHaveLength(1);
+    });
+
+    it('does not check budgets for income', async () => {
+      transactions.record
+        .mockResolvedValueOnce({
+          transaction: txEntity({ type: TransactionType.INCOME, description: 'gaji' }),
+          category,
+        })
+        .mockResolvedValueOnce(esTeh());
+      await orchestrator.process(user, msg('gaji 5 juta, beli es teh 5rb', 'w2'));
+      expect(budgets.evaluate).toHaveBeenCalledTimes(1);
+    });
+
+    it('records with the wallet named once for all items', async () => {
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+      await orchestrator.process(user, msg('beli ayam 8rb, beli es teh 5rb cash', 'w3'));
+      expect(recordedIntents().map((i) => i.wallet)).toEqual([Wallet.CASH, Wallet.CASH]);
+    });
+
+    it('uses the default wallet for every item without asking', async () => {
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+      await orchestrator.process({ ...user, defaultWallet: Wallet.DIGITAL }, msg(TWO, 'w4'));
+
+      expect(recordedIntents().map((i) => i.wallet)).toEqual([Wallet.DIGITAL, Wallet.DIGITAL]);
+      expect(conversation.awaitWalletBatch).not.toHaveBeenCalled();
+    });
+
+    it('forces the only wallet for a one-wallet user', async () => {
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+      await orchestrator.process(
+        { ...user, walletMode: WalletMode.CASH },
+        msg(TWO + ' qris', 'w5'),
+      );
+
+      expect(recordedIntents().map((i) => i.wallet)).toEqual([Wallet.CASH, Wallet.CASH]);
+      expect(conversation.awaitWalletBatch).not.toHaveBeenCalled();
+    });
+
+    it('records silently for users who do not use wallets', async () => {
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+      await orchestrator.process(user, msg(TWO, 'w6'));
+      expect(recordedIntents().map((i) => i.wallet)).toEqual([null, null]);
+      expect(conversation.awaitWalletBatch).not.toHaveBeenCalled();
+    });
+
+    describe('asking for the wallet', () => {
+      it('asks once for the whole batch and records nothing yet', async () => {
+        wallets.current.mockResolvedValue(enabled);
+        const reply = await orchestrator.process(user, msg(TWO, 'w7'));
+
+        expect(transactions.record).not.toHaveBeenCalled();
+        expect(conversation.awaitWalletBatch).toHaveBeenCalledTimes(1);
+        const [userId, batch, messageId] = conversation.awaitWalletBatch.mock.calls[0];
+        expect(userId).toBe('u1');
+        expect(messageId).toBe('w7');
+        expect(batch.map((p) => [p.description, p.amount, p.wallet])).toEqual([
+          ['ayam', '8000.00', null],
+          ['es teh manis', '5000.00', null],
+        ]);
+        expect(reply.text).toContain('2 transaksi');
+        expect(reply.text).toContain('cash');
+      });
+
+      it('only lists the items that still lack a wallet', async () => {
+        wallets.current.mockResolvedValue(enabled);
+        const reply = await orchestrator.process(
+          user,
+          msg('ayam 8rb cash, teh 5rb qris, roti 3rb', 'w8'),
+        );
+        expect(reply.text).toContain('1 transaksi');
+        expect(reply.text).toContain('roti');
+        expect(reply.text).not.toContain('ayam');
+        expect(conversation.awaitWalletBatch.mock.calls[0][1]).toHaveLength(3);
+      });
+
+      const waiting = (batch: unknown[]) =>
+        ({
+          state: ConversationState.AWAITING_WALLET,
+          payload: { batch, messageId: 'w7' },
+        }) as unknown as ConversationContextEntity;
+      const pending = (description: string, amount: string, wallet: Wallet | null = null) => ({
+        transactionType: TransactionType.EXPENSE,
+        description,
+        keywords: [description],
+        occurredAt: NOW.toISOString(),
+        wallet,
+        amount,
+        raw: description,
+      });
+
+      it('records every item with the answered wallet under the original message id', async () => {
+        conversation.getActive.mockResolvedValue(
+          waiting([pending('ayam', '8000.00'), pending('es teh manis', '5000.00')]),
+        );
+        transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+
+        const reply = await orchestrator.process(user, msg('digital', 'w9'));
+
+        expect(recordedIntents().map((i) => i.wallet)).toEqual([Wallet.DIGITAL, Wallet.DIGITAL]);
+        expect(recordedIntents().map((i) => i.amount?.toNumber())).toEqual([8000, 5000]);
+        expect(transactions.record.mock.calls.map((c) => c[2])).toEqual(['w7#0', 'w7#1']);
+        expect(conversation.clear).toHaveBeenCalledWith('u1');
+        expect(reply.text).toContain('2 transaksi dicatat');
+      });
+
+      it('keeps a wallet that an item named itself', async () => {
+        conversation.getActive.mockResolvedValue(
+          waiting([pending('ayam', '8000.00', Wallet.CASH), pending('roti', '3000.00')]),
+        );
+        transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+
+        await orchestrator.process(user, msg('digital', 'w10'));
+        expect(recordedIntents().map((i) => i.wallet)).toEqual([Wallet.CASH, Wallet.DIGITAL]);
+      });
+
+      it('asks again on an unclear answer and cancels on "batal"', async () => {
+        conversation.getActive.mockResolvedValue(waiting([pending('ayam', '8000.00')]));
+        const retry = await orchestrator.process(user, msg('hmm', 'w11'));
+        expect(retry.text).toContain('cash');
+        expect(transactions.record).not.toHaveBeenCalled();
+
+        const cancelled = await orchestrator.process(user, msg('batal', 'w12'));
+        expect(cancelled.text).toContain('dibatalkan');
+        expect(transactions.record).not.toHaveBeenCalled();
+      });
+    });
+
+    it('accepts up to 15 items and refuses more, recording none', async () => {
+      const many = (n: number) =>
+        Array.from({ length: n }, (_, i) => `item${i + 1} 1rb`).join(', ');
+
+      transactions.record.mockResolvedValue(ayam());
+      await orchestrator.process(user, msg(many(15), 'w13'));
+      expect(transactions.record).toHaveBeenCalledTimes(15);
+
+      transactions.record.mockClear();
+      const reply = await orchestrator.process(user, msg(many(16), 'w14'));
+      expect(reply.text).toContain('15');
+      expect(transactions.record).not.toHaveBeenCalled();
+    });
+
+    it('still records a single transaction the old way', async () => {
+      transactions.record.mockResolvedValue(result);
+      const reply = await orchestrator.process(user, msg('beli kopi 25rb', 'w15'));
+      expect(transactions.record.mock.calls[0][2]).toBe('w15'); // no "#0" suffix
+      expect(reply.text).toContain('Berhasil dicatat');
+    });
+
+    it('drops a pending question when a batch arrives', async () => {
+      conversation.getActive.mockResolvedValue({
+        state: ConversationState.AWAITING_AMOUNT,
+        payload: {
+          transactionType: TransactionType.EXPENSE,
+          description: 'kopi',
+          keywords: ['kopi'],
+          occurredAt: NOW.toISOString(),
+        },
+      } as unknown as ConversationContextEntity);
+      transactions.record.mockResolvedValueOnce(ayam()).mockResolvedValueOnce(esTeh());
+
+      const reply = await orchestrator.process(user, msg(TWO, 'w16'));
+      expect(conversation.clear).toHaveBeenCalledWith('u1');
+      expect(reply.text).toContain('2 transaksi dicatat');
     });
   });
 

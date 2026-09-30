@@ -3,6 +3,7 @@ import { Money } from 'src/shared/utils/money';
 
 export enum IntentType {
   RecordTransaction = 'RECORD_TRANSACTION',
+  RecordMany = 'RECORD_MANY',
   Summary = 'SUMMARY',
   SetBudget = 'SET_BUDGET',
   EditTransaction = 'EDIT_TRANSACTION',
@@ -45,6 +46,13 @@ export interface RecordTransactionIntent extends BaseIntent {
   occurredAt: Date;
   /** Wallet named in the message, or null when not stated. */
   wallet: Wallet | null;
+}
+
+/** Several complete transactions in one message ("beli ayam 8rb, beli es teh 5rb"). */
+export interface RecordManyIntent extends BaseIntent {
+  type: IntentType.RecordMany;
+  /** Every item has an amount. */
+  items: RecordTransactionIntent[];
 }
 
 /** Explicit start/end range (from "dari … sampai …"), overrides `period`. */
@@ -140,6 +148,7 @@ export interface UnknownIntent extends BaseIntent {
 
 export type ParsedIntent =
   | RecordTransactionIntent
+  | RecordManyIntent
   | SummaryIntent
   | SetBudgetIntent
   | EditTransactionIntent
