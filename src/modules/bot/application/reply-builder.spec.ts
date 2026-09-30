@@ -355,66 +355,71 @@ describe('ReplyBuilder', () => {
   describe('help menu', () => {
     const help = () => replies.compose({ type: IntentType.Help, raw: 'help' });
 
-    it('is one message that carries the wallet commands too', () => {
+    it('is a single, compact message', () => {
       const text = help();
       expect(text).toContain('Menu Cuanki');
-      expect(text).not.toContain('Menu Dompet');
-      expect(text).not.toContain('pesan berikutnya');
-      for (const word of ['Dompet Cash', 'Dompet Digital', 'Transfer antar dompet', 'saldo awal']) {
-        expect(text).toContain(word);
-      }
+      expect(text.split('\n').length).toBeLessThanOrEqual(26);
+      expect(text.length).toBeLessThan(1200);
     });
 
-    it('mentions recording several transactions at once', () => {
-      expect(help()).toContain('beli ayam 8rb, beli es teh 5rb');
-    });
-
-    it('covers every everyday command', () => {
+    it('still mentions every command, so nothing becomes undiscoverable', () => {
       const text = help();
-      for (const word of [
-        'beli kopi',
-        'gaji',
-        'ringkasan',
-        'edit jadi',
-        'hapus',
-        'budget',
-        'export',
-        'reset',
+      for (const command of [
+        'beli kopi 25rb',
+        'kemarin',
+        'gaji 8 juta',
+        'beli ayam 8rb, beli es teh 5rb',
+        'ringkasan bulan ini',
+        'export bulan ini',
+        'Excel',
+        'minggu ini',
+        '13/07/2026 - 14/07/2026',
+        'cash',
+        'transfer',
+        'qris',
+        '_saldo_',
+        'saldo awal cash 200rb',
+        'tarik tunai 500rb',
+        'pindah 300rb dari cash ke digital',
+        'atur dompet',
+        'default digital',
+        'edit jadi 30rb',
+        'edit ke digital',
+        '_hapus_',
+        'hapus transfer',
+        'konfirmasi',
+        'budget makan 2 juta',
+        '_reset_',
       ]) {
-        expect(text).toContain(word);
+        expect(text).toContain(command);
       }
-      expect(text).toContain('Excel');
-      expect(text).toContain('konfirmasi');
     });
 
-    it('lists the wallet sections in reading order, each with its own examples', () => {
+    it('groups the wallet commands under one heading', () => {
       const text = help();
-      const at = (heading: string) => text.indexOf(heading);
-      const [cash, digital, transfer, balance, settings] = [
-        'Dompet Cash',
-        'Dompet Digital',
-        'Transfer antar dompet',
-        'Saldo:',
-        'Pengaturan dompet',
-      ].map(at);
-
-      expect([cash, digital, transfer, balance, settings].every((i) => i > -1)).toBe(true);
-      expect(cash).toBeLessThan(digital);
-      expect(digital).toBeLessThan(transfer);
-      expect(transfer).toBeLessThan(balance);
-      expect(balance).toBeLessThan(settings);
-      expect(text.slice(cash, digital)).toContain('tunai');
-      expect(text.slice(digital, transfer)).toContain('qris');
-      expect(text.slice(transfer, balance)).toContain('tarik tunai');
-      expect(text.slice(balance, settings)).toContain('saldo awal cash 0');
-      expect(text.slice(settings)).toContain('atur dompet');
+      const wallet = text.indexOf('Dompet:');
+      const manage = text.indexOf('Kelola:');
+      expect(wallet).toBeGreaterThan(-1);
+      expect(wallet).toBeLessThan(manage);
+      for (const command of ['cash', 'saldo awal', 'tarik tunai', 'atur dompet']) {
+        const at = text.indexOf(command, wallet);
+        expect(at).toBeGreaterThan(-1);
+        expect(at).toBeLessThan(manage);
+      }
     });
 
-    it("keeps editing a transaction's wallet with the other edit commands", () => {
+    it('keeps sections in the order people need them', () => {
       const text = help();
-      const edit = text.indexOf('Kelola transaksi terakhir');
-      const budget = text.indexOf('Budget:');
-      expect(text.slice(edit, budget)).toContain('edit ke digital');
+      const order = [
+        'Catat:',
+        'Ringkasan & export:',
+        'Dompet:',
+        'Kelola:',
+        'Budget:',
+        'Reset:',
+      ].map((heading) => text.indexOf(heading));
+      expect(order.every((i) => i > -1)).toBe(true);
+      expect([...order].sort((x, y) => x - y)).toEqual(order);
     });
   });
 
